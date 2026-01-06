@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<!--
+  STREAMING CHAT - Demonstrates streaming inference with onToken
+
+  This example shows how to use streaming inference to display
+  tokens as they arrive from the LLM. This provides a more
+  responsive user experience for longer responses.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Streaming Chat</title>
+  <meta name="agentlet" content="0.1">
+  <meta name="agentlet:name" content="streaming-chat">
+  <meta name="agentlet:version" content="1.0.0">
+  <meta name="agentlet:description" content="Demonstrates streaming inference with real-time token display">
+  <meta name="agentlet:author" content="Agentlet Examples">
+  <meta name="agentlet:portability" content="universal">
+  <meta name="agentlet:capability" content="inference:basic">
+  <meta name="agentlet:capability" content="ui:panel">
+  <meta name="agentlet:action" content="chat" data-label="Stream Response">
+  <meta name="agentlet:action" content="haiku" data-label="Write Haiku">
+</head>
+<body>
+
+<script type="module">
+const { bridge } = window;
+
+// ═══════════════════════════════════════════════════════════════════
+// STREAMING CHAT ACTION
+// ═══════════════════════════════════════════════════════════════════
+
+bridge.action('chat', async () => {
+  // Check if streaming is supported
+  const features = bridge.features?.() || [];
+  const supportsStreaming = features.includes('inference:streaming');
+
+  // Get user prompt
+  const prompt = await bridge.ui.prompt(
+    'What would you like to ask?',
+    'Explain quantum computing in simple terms'
+  );
+
+  if (!prompt) return;
+
+  await bridge.activity.start('Generating response...');
+
+  let response = '';
+  let tokenCount = 0;
+
+  try {
+    if (supportsStreaming) {
+      // Use streaming inference
+      await bridge.inference({
+        prompt,
+        stream: true,
+        max_tokens: 500,
+        onToken: (token) => {
+          response += token;
+          tokenCount++;
+
+          // Log progress every 10 tokens
+          if (tokenCount % 10 === 0) {
+            bridge.activity.log(`Received ${tokenCount} tokens...`);
+          }
+        }
+      });
+    } else {
+      // Fallback to non-streaming
+      bridge.activity.log('Streaming not supported, using batch mode');
+      response = await bridge.inference({
+        prompt,
+        max_tokens: 500
+      });
+    }
+
+    await bridge.activity.complete(`Generated ${tokenCount || 'N/A'} tokens`);
+
+    // Display result
+    await bridge.ui.panel({
+      title: 'AI Response',
+      content: `
+        <div style="padding: 1rem; font-family: system-ui, sans-serif;">
+          <div style="white-space: pre-wrap; line-height: 1.6;">
+${escapeHtml(response)}
+          </div>
+          <hr style="margin: 1rem 0; border: none; border-top: 1px solid #ddd;">
+          <small style="color: #666;">
+            ${supportsStreaming ? `Streamed ${tokenCount} tokens` : 'Non-streaming mode'}
+          </small>
+        </div>
+      `
+    });
+
+  } catch (error) {
+    await bridge.activity.error(error.message);
+    await bridge.ui.notify(`Error: ${error.message}`, 'error');
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// HAIKU ACTION - Simple streaming demo
+// ═══════════════════════════════════════════════════════════════════
+
+bridge.action('haiku', async () => {
+  await bridge.activity.start('Writing haiku...');
+
+  let haiku = '';
+
+  try {
+    await bridge.inference({
+      prompt: 'Write a haiku about programming. Just the haiku, nothing else.',
+      stream: true,
+      max_tokens: 50,
+      onToken: (token) => {
+        haiku += token;
+        // Log each token as it arrives
+        bridge.activity.log(token);
+      }
+    });
+
+    await bridge.activity.complete('Haiku complete!');
+
+    await bridge.ui.panel({
+      title: 'Haiku',
+      content: `
+        <div style="padding: 2rem; text-align: center; font-family: Georgia, serif;">
+          <pre style="font-size: 1.2rem; line-height: 2; white-space: pre-wrap;">
+${escapeHtml(haiku.trim())}
+          </pre>
+        </div>
+      `
+    });
+
+  } catch (error) {
+    await bridge.activity.error(error.message);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════════════════════
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+</script>
+
+</body>
+</html>

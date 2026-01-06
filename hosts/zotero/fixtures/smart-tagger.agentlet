@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Smart Tagger</title>
+<meta name="agentlet" content="0.1">
+<meta name="agentlet:name" content="smart-tagger">
+<meta name="agentlet:version" content="1.0.0">
+<meta name="agentlet:description" content="AI-powered auto-tagging for selected items">
+<meta name="agentlet:portability" content="adaptive">
+<meta name="agentlet:requires" content="inference:basic">
+<meta name="agentlet:requires" content="context:bibliographic:read">
+<meta name="agentlet:requires" content="context:bibliographic:write">
+<meta name="agentlet:intent" content="add-tags">
+<meta name="agentlet:capability" content="ui:notify">
+<meta name="agentlet:action" content="tag" data-label="Auto-Tag">
+</head>
+<body>
+<script type="module">
+const { bridge } = window;
+
+bridge.action('tag', async () => {
+  await bridge.activity.start('Analyzing content...');
+
+  const ctx = await bridge.perceive({
+    scope: 'selection',
+    understand: true
+  });
+
+  if (ctx.items.length === 0) {
+    await bridge.ui.notify('Select an item first', 'warning');
+    return;
+  }
+
+  await bridge.activity.step('Generating tags...');
+
+  const response = await bridge.inference({
+    prompt: `Based on this content, suggest exactly 3 relevant tags (single words, lowercase, no # prefix). Return only comma-separated tags, nothing else.
+
+Content: ${ctx.understanding || ctx.items[0].content?.slice(0, 500) || ctx.items[0].title}`,
+    max_tokens: 50
+  });
+
+  const tags = response.split(',').map(t => t.trim().toLowerCase()).filter(t => t.length > 0);
+
+  if (tags.length === 0) {
+    await bridge.activity.error('Could not generate tags');
+    return;
+  }
+
+  if (ctx.capabilities.includes('tags')) {
+    await bridge.act({
+      intent: 'add-tags',
+      items: ctx.items,
+      tags
+    });
+    await bridge.activity.complete(`Added tags: ${tags.join(', ')}`);
+  } else {
+    await bridge.ui.notify(`Suggested tags: ${tags.join(', ')}`, 'info');
+    await bridge.activity.complete('Tags suggested (host does not support tagging)');
+  }
+});
+</script>
+</body>
+</html>

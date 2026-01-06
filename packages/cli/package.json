@@ -1,0 +1,47 @@
+{
+  "name": "@agentlet/cli",
+  "version": "0.1.0",
+  "description": "CLI for developing Agentlet agents",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "agentlet": "./bin/agentlet.js"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "templates"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "start": "node bin/agentlet.js"
+  },
+  "keywords": [
+    "agentlet",
+    "cli",
+    "ai-agent",
+    "developer-tools"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@agentlet/host-sdk": "^0.1.0",
+    "@agentlet/testing": "^0.1.0",
+    "commander": "^12.0.0",
+    "chalk": "^5.3.0"
+  },
+  "peerDependencies": {
+    "jsdom": ">=20.0.0"
+  },
+  "peerDependenciesMeta": {
+    "jsdom": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0"
+  }
+}

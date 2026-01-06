@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<!--
+  MULTI-FILE REFACTORER - Host-Specific Agent Example (VS Code)
+
+  Demonstrates: Complex multi-file operations
+  - Perceive across entire workspace
+  - Multi-turn inference with tool use
+  - Act on multiple files atomically
+  - Activity stream for progress tracking
+  - Limits checking to avoid quota exhaustion
+  - Confirmation before destructive changes
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Multi-File Refactorer</title>
+
+  <meta name="agentlet" content="0.1">
+  <meta name="agentlet:name" content="multifile-refactorer">
+  <meta name="agentlet:version" content="1.0.0">
+  <meta name="agentlet:description" content="Large-scale refactoring across multiple files with AI planning">
+  <meta name="agentlet:author" content="Agentlet Project">
+  <meta name="agentlet:license" content="MIT">
+
+  <!-- Host-specific -->
+  <meta name="agentlet:portability" content="host-specific">
+  <meta name="agentlet:host" content="vscode:>=1.80.0">
+
+  <!-- Required capabilities -->
+  <meta name="agentlet:requires" content="perceive">
+  <meta name="agentlet:requires" content="act">
+  <meta name="agentlet:requires" content="inference:tools">
+  <meta name="agentlet:requires" content="ui:panel">
+  <meta name="agentlet:requires" content="ui:confirm">
+  <meta name="agentlet:requires" content="storage">
+  <meta name="agentlet:requires" content="limits">
+
+  <!-- Optional capabilities -->
+  <meta name="agentlet:optional" content="ui:notify">
+  <meta name="agentlet:optional" content="context:git:read">
+
+  <!-- Intents -->
+  <meta name="agentlet:intent" content="update-file">
+  <meta name="agentlet:intent" content="create-file">
+  <meta name="agentlet:intent" content="rename-file">
+
+  <!-- Actions -->
+  <meta name="agentlet:action" content="rename-symbol" data-label="Rename Symbol Across Files" data-confirm="true">
+  <meta name="agentlet:action" content="update-imports" data-label="Update Import Paths" data-confirm="true">
+  <meta name="agentlet:action" content="extract-module" data-label="Extract to New Module" data-confirm="true">
+  <meta name="agentlet:action" content="apply-pattern" data-label="Apply Pattern Across Codebase" data-confirm="true">
+
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 1rem;
+    }
+    .plan-container {
+      background: #f8fafc;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+    .plan-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .plan-step:last-child {
+      border-bottom: none;
+    }
+    .step-number {
+      width: 24px;
+      height: 24px;
+      background: #3b82f6;
+      color: white;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+    .step-number.pending { background: #94a3b8; }
+    .step-number.in-progress { background: #f59e0b; }
+    .step-number.complete { background: #22c55e; }
+    .step-number.error { background: #ef4444; }
+    .step-content {
+      flex: 1;
+    }
+    .step-file {
+      font-family: monospace;
+      font-size: 0.8rem;
+      color: #64748b;
+    }
+    .file-change {
+      background: #1e293b;
+      color: #e2e8f0;
+      padding: 0.75rem;
+      border-radius: 6px;
+      margin: 0.5rem 0;
+      font-family: monospace;
+      font-size: 0.8rem;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+    .limits-warning {
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      padding: 0.75rem;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+      font-size: 0.875rem;
+    }
+    .summary-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    .stat {
+      background: #f1f5f9;
+      padding: 0.75rem;
+      border-radius: 6px;
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #1e293b;
+    }
+    .stat-label {
+      font-size: 0.7rem;
+      color: #64748b;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body>
+
+<noscript>
+  <h1>Multi-File Refactorer</h1>
+  <p>Large-scale refactoring across your entire codebase.</p>
+  <p><strong>Warning:</strong> This is a powerful tool. Always review changes before applying.</p>
+</noscript>
+
+<script type="module">
+const { bridge } = window;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LIMITS CHECKING
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function checkLimits(estimatedCalls) {
+  try {
+    const limits = await bridge.limits.get();
+
+    if (limits.inferenceRemaining < estimatedCalls) {
+      const proceed = await bridge.ui.confirm({
+        title: 'Resource Warning',
+        content: `
+          <div class="limits-warning">
+            This operation may require approximately <strong>${estimatedCalls}</strong> inference calls.
+            You have <strong>${limits.inferenceRemaining}</strong> remaining.
+            <br><br>
+            The operation may not complete fully.
+          </div>
+        `,
+        buttons: ['Continue Anyway', 'Cancel']
+      });
+
+      return proceed === 'Continue Anyway';
+    }
+
+    return true;
+  } catch {
+    // Limits not available, proceed
+    return true;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// WORKSPACE ANALYSIS
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function analyzeWorkspace() {
+  await bridge.activity.log('Scanning workspace...');
+
+  const context = await bridge.perceive({
+    scope: 'workspace',
+    include: ['files', 'structure']
+  });
+
+  const files = context.items || [];
+
+  // Filter to relevant code files
+  const codeFiles = files.filter(f => {
+    const path = f.path || f.name || '';
+    return /\.(js|ts|jsx|tsx|py|java|go|rs)$/.test(path) &&
+           !path.includes('node_modules') &&
+           !path.includes('.git');
+  });
+
+  await bridge.activity.log(`Found ${codeFiles.length} code files`);
+
+  return codeFiles;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RENAME SYMBOL
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function renameSymbolAcrossFiles() {
+  // Get the symbol from selection
+  const selection = await bridge.perceive({ scope: 'selection' });
+
+  if (!selection.items?.length) {
+    await bridge.ui.notify?.('Select a symbol to rename', 'warning');
+    return;
+  }
+
+  const selectedText = extractText(selection);
+
+  // Prompt for new name
+  const newName = await bridge.ui.prompt?.({
+    title: 'Rename Symbol',
+    message: `Rename "${selectedText}" to:`,
+    value: selectedText
+  });
+
+  if (!newName || newName === selectedText) return;
+
+  await bridge.activity.start(`Renaming "${selectedText}" to "${newName}"...`);
+
+  // Analyze workspace
+  const files = await analyzeWorkspace();
+
+  // Estimate calls needed
+  const estimatedCalls = Math.ceil(files.length / 5) + 2;
+  if (!(await checkLimits(estimatedCalls))) return;
+
+  // Find all occurrences
+  await bridge.activity.log('Finding occurrences...');
+
+  const occurrences = await bridge.inference({
+    messages: [
+      {
+        role: 'system',
+        content: `Find all occurrences of the symbol "${selectedText}" that should be renamed to "${newName}".
+
+Consider:
+- Variable declarations and usages
+- Function/method names and calls
+- Class names and instantiations
+- Import/export statements
+- Type references
+
+Do NOT rename:
+- Occurrences in strings or comments (unless they're documentation)
+- Similarly named but different symbols (e.g., "user" vs "users")
+
+Return JSON:
+{
+  "occurrences": [
+    { "file": "path", "line": 1, "column": 1, "context": "code snippet", "type": "declaration|usage|import" }
+  ],
+  "totalCount": 0
+}`
+      },
+      {
+        role: 'user',
+        content: `Files to search:\n${files.map(f => `${f.path}: ${extractPreview(f)}`).join('\n\n').slice(0, 10000)}`
+      }
+    ]
+  });
+
+  let foundOccurrences;
+  try {
+    foundOccurrences = JSON.parse(occurrences);
+  } catch {
+    foundOccurrences = { occurrences: [], totalCount: 0 };
+  }
+
+  await bridge.activity.log(`Found ${foundOccurrences.totalCount} occurrences`);
+
+  if (foundOccurrences.occurrences.length === 0) {
+    await bridge.ui.notify?.('No occurrences found', 'info');
+    return;
+  }
+
+  // Group by file
+  const byFile = {};
+  for (const occ of foundOccurrences.occurrences) {
+    if (!byFile[occ.file]) byFile[occ.file] = [];
+    byFile[occ.file].push(occ);
+  }
+
+  // Show plan and get approval
+  const approved = await showRefactoringPlan(
+    `Rename "${selectedText}" to "${newName}"`,
+    byFile,
+    foundOccurrences.totalCount
+  );
+
+  if (!approved) return;
+
+  // Apply changes
+  await applyChanges(byFile, selectedText, newName);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UPDATE IMPORTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function updateImportPaths() {
+  // Get parameters
+  const oldPath = await bridge.ui.prompt?.({
+    title: 'Update Import Paths',
+    message: 'Old import path (or pattern):',
+    placeholder: '@/old-module'
+  });
+
+  if (!oldPath) return;
+
+  const newPath = await bridge.ui.prompt?.({
+    title: 'Update Import Paths',
+    message: 'New import path:',
+    placeholder: '@/new-module'
+  });
+
+  if (!newPath) return;
+
+  await bridge.activity.start(`Updating imports: ${oldPath} → ${newPath}`);
+
+  const files = await analyzeWorkspace();
+
+  // Find files with matching imports
+  const analysis = await bridge.inference({
+    messages: [
+      {
+        role: 'system',
+        content: `Find all import statements that reference "${oldPath}" and need to be updated to "${newPath}".
+
+Handle different import syntaxes:
+- ES modules: import { x } from '${oldPath}'
+- CommonJS: require('${oldPath}')
+- Dynamic imports: import('${oldPath}')
+
+Return JSON:
+{
+  "files": [
+    {
+      "path": "file path",
+      "imports": [
+        { "line": 1, "original": "full line", "updated": "updated line" }
+      ]
+    }
+  ],
+  "totalImports": 0
+}`
+      },
+      {
+        role: 'user',
+        content: files.map(f => `${f.path}:\n${extractPreview(f)}`).join('\n\n').slice(0, 10000)
+      }
+    ]
+  });
+
+  let result;
+  try {
+    result = JSON.parse(analysis);
+  } catch {
+    result = { files: [], totalImports: 0 };
+  }
+
+  if (result.files.length === 0) {
+    await bridge.ui.notify?.('No matching imports found', 'info');
+    return;
+  }
+
+  // Show plan
+  const byFile = {};
+  for (const f of result.files) {
+    byFile[f.path] = f.imports.map(i => ({
+      line: i.line,
+      context: i.original,
+      type: 'import'
+    }));
+  }
+
+  const approved = await showRefactoringPlan(
+    `Update imports: ${oldPath} → ${newPath}`,
+    byFile,
+    result.totalImports
+  );
+
+  if (!approved) return;
+
+  // Apply changes
+  for (const file of result.files) {
+    await bridge.activity.progress(
+      result.files.indexOf(file) + 1,
+      result.files.length,
+      file.path
+    );
+
+    bridge.throwIfCancelled();
+
+    try {
+      // Read current file content
+      const current = await bridge.context?.get?.('file', file.path);
+      let content = current?.content || '';
+
+      // Apply each import update
+      for (const imp of file.imports) {
+        content = content.replace(imp.original, imp.updated);
+      }
+
+      await bridge.act({
+        intent: 'update-file',
+        path: file.path,
+        content
+      });
+    } catch (e) {
+      await bridge.activity.log(`Error updating ${file.path}: ${e.message}`);
+    }
+  }
+
+  await bridge.activity.complete(`Updated ${result.totalImports} imports in ${result.files.length} files`);
+  await bridge.ui.notify?.(`Updated ${result.totalImports} imports`, 'success');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EXTRACT MODULE
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function extractToModule() {
+  const selection = await bridge.perceive({ scope: 'selection' });
+
+  if (!selection.items?.length) {
+    await bridge.ui.notify?.('Select code to extract', 'warning');
+    return;
+  }
+
+  const code = extractText(selection);
+  const sourceFile = selection.items[0].path || 'source';
+
+  const moduleName = await bridge.ui.prompt?.({
+    title: 'Extract to Module',
+    message: 'New module name:',
+    placeholder: 'utils/helper'
+  });
+
+  if (!moduleName) return;
+
+  await bridge.activity.start(`Extracting to ${moduleName}...`);
+
+  // AI plans the extraction
+  const plan = await bridge.inference({
+    messages: [
+      {
+        role: 'system',
+        content: `Plan extracting the selected code to a new module "${moduleName}".
+
+Determine:
+1. What to put in the new module
+2. What to export from the new module
+3. What imports the source file needs to add
+4. What code to remove from the source file
+5. What to keep as-is
+
+Return JSON:
+{
+  "newModule": {
+    "path": "full path for new file",
+    "content": "full content of new module",
+    "exports": ["exported names"]
+  },
+  "sourceUpdates": {
+    "addImport": "import statement to add",
+    "removeCode": "code to remove",
+    "replaceWith": "what to replace removed code with (if any)"
+  }
+}`
+      },
+      {
+        role: 'user',
+        content: `Source file: ${sourceFile}
+Selected code:
+${code}`
+      }
+    ]
+  });
+
+  let extractPlan;
+  try {
+    extractPlan = JSON.parse(plan);
+  } catch {
+    await bridge.ui.notify?.('Failed to plan extraction', 'error');
+    return;
+  }
+
+  // Show preview
+  const approved = await bridge.ui.confirm({
+    title: 'Extract to Module',
+    content: `
+      <div class="summary-stats">
+        <div class="stat">
+          <div class="stat-value">1</div>
+          <div class="stat-label">New File</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">1</div>
+          <div class="stat-label">Updated</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">${extractPlan.newModule.exports?.length || 0}</div>
+          <div class="stat-label">Exports</div>
+        </div>
+      </div>
+
+      <strong>New module: ${extractPlan.newModule.path}</strong>
+      <div class="file-change">${escapeHtml(extractPlan.newModule.content.slice(0, 500))}${extractPlan.newModule.content.length > 500 ? '...' : ''}</div>
+
+      <strong>Source file update:</strong>
+      <div class="file-change">+ ${escapeHtml(extractPlan.sourceUpdates.addImport)}</div>
+    `,
+    buttons: ['Apply', 'Cancel'],
+    width: 600
+  });
+
+  if (approved !== 'Apply') return;
+
+  // Create new module
+  await bridge.act({
+    intent: 'create-file',
+    path: extractPlan.newModule.path,
+    content: extractPlan.newModule.content
+  });
+
+  // Update source file
+  // This would need more sophisticated handling in practice
+  await bridge.ui.notify?.(`Created ${extractPlan.newModule.path}`, 'success');
+  await bridge.activity.complete('Module extracted');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// APPLY PATTERN
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function applyPatternAcrossCodebase() {
+  const patternDesc = await bridge.ui.prompt?.({
+    title: 'Apply Pattern',
+    message: 'Describe the pattern to apply:',
+    placeholder: 'e.g., "Replace all console.log with logger.debug"',
+    multiline: true
+  });
+
+  if (!patternDesc) return;
+
+  await bridge.activity.start('Analyzing codebase for pattern application...');
+
+  const files = await analyzeWorkspace();
+
+  // Estimate and check limits
+  const estimatedCalls = Math.ceil(files.length / 3) + 5;
+  if (!(await checkLimits(estimatedCalls))) return;
+
+  // AI analyzes and plans
+  const analysis = await bridge.inference({
+    messages: [
+      {
+        role: 'system',
+        content: `Apply the following pattern across the codebase: "${patternDesc}"
+
+Analyze each file and determine what changes are needed.
+Be conservative - only make changes where the pattern clearly applies.
+
+Return JSON:
+{
+  "pattern": {
+    "description": "what the pattern does",
+    "find": "what to look for",
+    "replace": "what to replace with"
+  },
+  "changes": [
+    {
+      "file": "path",
+      "line": 1,
+      "original": "original code",
+      "updated": "updated code",
+      "reason": "why this matches the pattern"
+    }
+  ],
+  "summary": {
+    "filesAffected": 0,
+    "totalChanges": 0
+  }
+}`
+      },
+      {
+        role: 'user',
+        content: files.map(f => `${f.path}:\n${extractPreview(f)}`).join('\n\n').slice(0, 12000)
+      }
+    ]
+  });
+
+  let result;
+  try {
+    result = JSON.parse(analysis);
+  } catch {
+    await bridge.ui.notify?.('Failed to analyze pattern', 'error');
+    return;
+  }
+
+  if (result.changes.length === 0) {
+    await bridge.ui.notify?.('No matches found for this pattern', 'info');
+    return;
+  }
+
+  // Group by file
+  const byFile = {};
+  for (const change of result.changes) {
+    if (!byFile[change.file]) byFile[change.file] = [];
+    byFile[change.file].push(change);
+  }
+
+  // Show plan
+  const approved = await showRefactoringPlan(
+    result.pattern.description,
+    byFile,
+    result.summary.totalChanges
+  );
+
+  if (!approved) return;
+
+  // Apply changes file by file
+  const fileList = Object.keys(byFile);
+  for (let i = 0; i < fileList.length; i++) {
+    const filePath = fileList[i];
+    const changes = byFile[filePath];
+
+    await bridge.activity.progress(i + 1, fileList.length, filePath);
+    bridge.throwIfCancelled();
+
+    try {
+      const current = await bridge.context?.get?.('file', filePath);
+      let content = current?.content || '';
+
+      for (const change of changes) {
+        content = content.replace(change.original, change.updated);
+      }
+
+      await bridge.act({
+        intent: 'update-file',
+        path: filePath,
+        content
+      });
+    } catch (e) {
+      await bridge.activity.log(`Error updating ${filePath}: ${e.message}`);
+    }
+  }
+
+  await bridge.activity.complete(`Applied ${result.summary.totalChanges} changes in ${result.summary.filesAffected} files`);
+  await bridge.ui.notify?.('Pattern applied successfully', 'success');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UI HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function showRefactoringPlan(title, byFile, totalChanges) {
+  const fileCount = Object.keys(byFile).length;
+
+  const result = await bridge.ui.confirm({
+    title: 'Refactoring Plan',
+    content: `
+      <div class="summary-stats">
+        <div class="stat">
+          <div class="stat-value">${fileCount}</div>
+          <div class="stat-label">Files</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">${totalChanges}</div>
+          <div class="stat-label">Changes</div>
+        </div>
+      </div>
+
+      <strong>${escapeHtml(title)}</strong>
+
+      <div class="plan-container" style="max-height: 300px; overflow-y: auto;">
+        ${Object.entries(byFile).slice(0, 10).map(([file, changes]) => `
+          <div class="plan-step">
+            <div class="step-number pending">${changes.length}</div>
+            <div class="step-content">
+              <div class="step-file">${escapeHtml(file)}</div>
+              <div style="font-size: 0.8rem; color: #64748b;">
+                ${changes.slice(0, 2).map(c => escapeHtml(c.context?.slice(0, 50) || '')).join(', ')}
+                ${changes.length > 2 ? `... +${changes.length - 2} more` : ''}
+              </div>
+            </div>
+          </div>
+        `).join('')}
+        ${fileCount > 10 ? `<p style="color: #64748b; text-align: center;">... and ${fileCount - 10} more files</p>` : ''}
+      </div>
+    `,
+    buttons: ['Apply All', 'Cancel'],
+    width: 550
+  });
+
+  return result === 'Apply All';
+}
+
+async function applyChanges(byFile, oldText, newText) {
+  const fileList = Object.keys(byFile);
+
+  for (let i = 0; i < fileList.length; i++) {
+    const filePath = fileList[i];
+
+    await bridge.activity.progress(i + 1, fileList.length, filePath);
+    bridge.throwIfCancelled();
+
+    try {
+      const current = await bridge.context?.get?.('file', filePath);
+      const content = (current?.content || '').replaceAll(oldText, newText);
+
+      await bridge.act({
+        intent: 'update-file',
+        path: filePath,
+        content
+      });
+    } catch (e) {
+      await bridge.activity.log(`Error updating ${filePath}: ${e.message}`);
+    }
+  }
+
+  await bridge.activity.complete(`Renamed in ${fileList.length} files`);
+  await bridge.ui.notify?.(`Renamed "${oldText}" to "${newText}" in ${fileList.length} files`, 'success');
+}
+
+function extractText(context) {
+  const item = context.items[0];
+  if (typeof item === 'string') return item;
+  return item.content || item.text || item.selection || '';
+}
+
+function extractPreview(file) {
+  const content = file.content || file.text || '';
+  return content.slice(0, 500);
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ACTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+bridge.action('rename-symbol', async () => {
+  await renameSymbolAcrossFiles();
+});
+
+bridge.action('update-imports', async () => {
+  await updateImportPaths();
+});
+
+bridge.action('extract-module', async () => {
+  await extractToModule();
+});
+
+bridge.action('apply-pattern', async () => {
+  await applyPatternAcrossCodebase();
+});
+</script>
+
+</body>
+</html>

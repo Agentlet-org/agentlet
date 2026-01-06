@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<!--
+  DOCUMENTATION DRAFTER - Adaptive Agent Example
+
+  Demonstrates: Cross-host content generation
+  - Works in VS Code (code docs) and Obsidian (note docs)
+  - Perceive for context, act for file creation
+  - Multiple documentation formats (README, API, inline)
+  - Host-aware output formatting
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Documentation Drafter</title>
+
+  <meta name="agentlet" content="0.1">
+  <meta name="agentlet:name" content="doc-drafter">
+  <meta name="agentlet:version" content="1.0.0">
+  <meta name="agentlet:description" content="Generates documentation from code or notes">
+  <meta name="agentlet:author" content="Agentlet Project">
+  <meta name="agentlet:license" content="MIT">
+
+  <!-- Adaptive: works in any host that supports perceive/act -->
+  <meta name="agentlet:portability" content="adaptive">
+
+  <!-- Required capabilities -->
+  <meta name="agentlet:requires" content="perceive">
+  <meta name="agentlet:requires" content="act">
+  <meta name="agentlet:requires" content="inference:basic">
+  <meta name="agentlet:requires" content="ui:panel">
+  <meta name="agentlet:requires" content="ui:confirm">
+
+  <!-- Optional capabilities -->
+  <meta name="agentlet:optional" content="storage">
+  <meta name="agentlet:optional" content="ui:notify">
+
+  <!-- Intents we use -->
+  <meta name="agentlet:intent" content="create-file">
+  <meta name="agentlet:intent" content="update-file">
+
+  <!-- Actions -->
+  <meta name="agentlet:action" content="draft-readme" data-label="Draft README">
+  <meta name="agentlet:action" content="draft-api-docs" data-label="Draft API Docs">
+  <meta name="agentlet:action" content="draft-from-notes" data-label="Draft from Notes">
+  <meta name="agentlet:action" content="explain-file" data-label="Add File Header">
+
+  <!-- User preferences -->
+  <meta name="agentlet:preference" content="doc-style"
+        data-type="select"
+        data-label="Documentation style"
+        data-default="markdown">
+  <meta name="agentlet:preference:option" content="doc-style:markdown" data-label="Markdown">
+  <meta name="agentlet:preference:option" content="doc-style:jsdoc" data-label="JSDoc">
+  <meta name="agentlet:preference:option" content="doc-style:docstring" data-label="Python Docstrings">
+
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 1rem;
+      line-height: 1.6;
+    }
+    .preview {
+      background: #1e293b;
+      color: #e2e8f0;
+      padding: 1rem;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 0.875rem;
+      white-space: pre-wrap;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .host-info {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      padding: 0.75rem;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+      font-size: 0.875rem;
+    }
+    .source-info {
+      background: #f1f5f9;
+      padding: 0.75rem;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+    }
+    .source-label {
+      font-weight: 600;
+      color: #475569;
+    }
+  </style>
+</head>
+<body>
+
+<noscript>
+  <h1>Documentation Drafter</h1>
+  <p>Generates documentation from code (VS Code) or notes (Obsidian).</p>
+  <p>This cross-host agent adapts to the context it finds.</p>
+</noscript>
+
+<script type="module">
+const { bridge } = window;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HOST DETECTION & ADAPTATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function detectHostContext() {
+  const context = await bridge.perceive({
+    scope: 'selection',
+    understand: true
+  });
+
+  // Determine what kind of content we're working with
+  const contentType = analyzeContentType(context);
+
+  return {
+    host: bridge.host?.name || context.host || 'unknown',
+    contentType,
+    items: context.items || [],
+    understanding: context.understanding,
+    capabilities: context.capabilities || []
+  };
+}
+
+function analyzeContentType(context) {
+  const understanding = (context.understanding || '').toLowerCase();
+  const items = context.items || [];
+
+  // Check for code indicators
+  if (understanding.includes('code') ||
+      understanding.includes('function') ||
+      understanding.includes('class') ||
+      items.some(i => hasCodeExtension(i))) {
+    return 'code';
+  }
+
+  // Check for note indicators
+  if (understanding.includes('note') ||
+      understanding.includes('markdown') ||
+      understanding.includes('text')) {
+    return 'notes';
+  }
+
+  // Infer from first item
+  if (items.length > 0) {
+    const first = items[0];
+    const content = first.content || first.text || '';
+    if (looksLikeCode(content)) return 'code';
+    return 'notes';
+  }
+
+  return 'unknown';
+}
+
+function hasCodeExtension(item) {
+  const path = item.path || item.file || item.name || '';
+  const codeExtensions = ['.js', '.ts', '.py', '.java', '.go', '.rs', '.cpp', '.c', '.rb'];
+  return codeExtensions.some(ext => path.endsWith(ext));
+}
+
+function looksLikeCode(content) {
+  const codePatterns = [
+    /function\s+\w+/,
+    /const\s+\w+\s*=/,
+    /class\s+\w+/,
+    /def\s+\w+\(/,
+    /import\s+\{/,
+    /export\s+(default\s+)?/
+  ];
+  return codePatterns.some(p => p.test(content));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DOCUMENTATION GENERATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function draftDocumentation(docType) {
+  const hostContext = await detectHostContext();
+
+  if (hostContext.items.length === 0) {
+    await bridge.ui.notify?.('Select some content first', 'warning');
+    return;
+  }
+
+  await bridge.activity.start(`Drafting ${docType} documentation...`);
+  await bridge.activity.log(`Detected: ${hostContext.contentType} in ${hostContext.host}`);
+
+  const prefs = await bridge.preferences?.get() || {};
+  const style = prefs['doc-style'] || 'markdown';
+
+  // Build appropriate prompt based on doc type and content type
+  const prompt = buildDocPrompt(docType, hostContext, style);
+
+  const draft = await bridge.inference({
+    messages: [
+      { role: 'system', content: prompt.system },
+      { role: 'user', content: prompt.user }
+    ]
+  });
+
+  await bridge.activity.complete('Draft ready');
+
+  // Show preview with option to save
+  await showDocPreview(draft, hostContext, docType);
+}
+
+function buildDocPrompt(docType, context, style) {
+  const styleGuides = {
+    markdown: 'Use GitHub-flavored Markdown with headers, lists, and code blocks.',
+    jsdoc: 'Use JSDoc format with @param, @returns, @example tags.',
+    docstring: 'Use Python docstring format with Args, Returns, Examples sections.'
+  };
+
+  const prompts = {
+    'readme': {
+      system: `You are a technical writer creating a README file.
+${styleGuides[style]}
+
+Include:
+- Project title and description
+- Installation instructions (if applicable)
+- Usage examples
+- API reference (if functions/classes detected)
+- Contributing guidelines placeholder
+
+Adapt based on the content type:
+- For code: focus on API, installation, usage
+- For notes: focus on summary, structure, key points`,
+
+      user: `Content type: ${context.contentType}
+Host: ${context.host}
+Understanding: ${context.understanding}
+
+Content:
+${JSON.stringify(context.items, null, 2).slice(0, 6000)}`
+    },
+
+    'api-docs': {
+      system: `You are a technical writer creating API documentation.
+${styleGuides[style]}
+
+For each function/class/method found:
+- Name and signature
+- Description of purpose
+- Parameters with types and descriptions
+- Return value
+- Example usage
+- Possible errors/exceptions`,
+
+      user: `Content to document:
+${JSON.stringify(context.items, null, 2).slice(0, 6000)}`
+    },
+
+    'from-notes': {
+      system: `You are a technical writer converting notes into documentation.
+${styleGuides[style]}
+
+Transform the notes into well-structured documentation:
+- Extract key concepts
+- Organize into logical sections
+- Add explanatory prose
+- Include examples where helpful
+- Maintain the original intent`,
+
+      user: `Notes to convert:
+${JSON.stringify(context.items, null, 2).slice(0, 6000)}`
+    },
+
+    'file-header': {
+      system: `You are adding a documentation header to a file.
+${styleGuides[style]}
+
+Create a concise header that explains:
+- What this file does
+- Main exports/functions
+- Dependencies/requirements
+- Usage example
+
+Keep it brief but informative.`,
+
+      user: `File content:
+${JSON.stringify(context.items, null, 2).slice(0, 4000)}`
+    }
+  };
+
+  return prompts[docType] || prompts['readme'];
+}
+
+async function showDocPreview(draft, context, docType) {
+  const approved = await bridge.ui.confirm({
+    title: `${docType} Documentation Preview`,
+    content: `
+      <div class="host-info">
+        Running in <strong>${context.host}</strong> |
+        Content type: <strong>${context.contentType}</strong>
+      </div>
+
+      <div class="source-info">
+        <span class="source-label">Source:</span>
+        ${context.items.length} item(s) analyzed
+      </div>
+
+      <div class="preview">${escapeHtml(draft)}</div>
+    `,
+    buttons: ['Create File', 'Copy', 'Cancel']
+  });
+
+  if (approved === 'Cancel') return;
+
+  if (approved === 'Create File') {
+    const filename = await bridge.ui.prompt?.({
+      title: 'File name',
+      value: suggestFilename(docType, context),
+      placeholder: 'README.md'
+    }) || suggestFilename(docType, context);
+
+    try {
+      await bridge.act({
+        intent: 'create-file',
+        path: filename,
+        content: draft
+      });
+      await bridge.ui.notify?.(`Created ${filename}`, 'success');
+    } catch (e) {
+      await bridge.ui.notify?.(`Failed to create file: ${e.message}`, 'error');
+    }
+  } else {
+    // Copy to clipboard
+    await bridge.ui.notify?.('Copied to clipboard', 'success');
+  }
+}
+
+function suggestFilename(docType, context) {
+  const names = {
+    'readme': 'README.md',
+    'api-docs': 'API.md',
+    'from-notes': 'DOCS.md',
+    'file-header': null // Will be inserted into existing file
+  };
+  return names[docType] || 'DOCUMENTATION.md';
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ACTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+bridge.action('draft-readme', async () => {
+  await draftDocumentation('readme');
+});
+
+bridge.action('draft-api-docs', async () => {
+  await draftDocumentation('api-docs');
+});
+
+bridge.action('draft-from-notes', async () => {
+  await draftDocumentation('from-notes');
+});
+
+bridge.action('explain-file', async () => {
+  await draftDocumentation('file-header');
+});
+</script>
+
+</body>
+</html>

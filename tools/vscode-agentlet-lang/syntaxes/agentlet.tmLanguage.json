@@ -1,0 +1,188 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Agentlet",
+  "scopeName": "text.html.agentlet",
+  "patterns": [
+    { "include": "#agentlet-meta" },
+    { "include": "#comment" },
+    { "include": "#doctype" },
+    { "include": "#script" },
+    { "include": "#style" },
+    { "include": "#tag" }
+  ],
+  "repository": {
+    "agentlet-meta": {
+      "comment": "Agentlet manifest meta tags with special highlighting",
+      "begin": "(<)(meta)(\\s+)",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.tag.begin.html" },
+        "2": { "name": "entity.name.tag.html" },
+        "3": { "name": "text.html" }
+      },
+      "end": "(/?>)",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.tag.end.html" }
+      },
+      "patterns": [
+        {
+          "comment": "Agentlet spec version meta",
+          "match": "(name)(=)(\")(agentlet)(\")",
+          "captures": {
+            "1": { "name": "entity.other.attribute-name.html" },
+            "2": { "name": "punctuation.separator.key-value.html" },
+            "3": { "name": "punctuation.definition.string.begin.html" },
+            "4": { "name": "keyword.control.agentlet" },
+            "5": { "name": "punctuation.definition.string.end.html" }
+          }
+        },
+        {
+          "comment": "Agentlet manifest meta names",
+          "match": "(name)(=)(\")(agentlet:(?:name|version|description|author|license|homepage|icon|portability|host|requires|optional|capability|intent|action|default-action|preference|preference:option|trigger))(\")",
+          "captures": {
+            "1": { "name": "entity.other.attribute-name.html" },
+            "2": { "name": "punctuation.separator.key-value.html" },
+            "3": { "name": "punctuation.definition.string.begin.html" },
+            "4": { "name": "support.type.agentlet.meta" },
+            "5": { "name": "punctuation.definition.string.end.html" }
+          }
+        },
+        {
+          "comment": "Agentlet data attributes",
+          "match": "(data-(?:label|description|type|default|confirm|deprecated|deprecated-message|remove-in|action|filter|min-spec|max-spec))(=)",
+          "captures": {
+            "1": { "name": "entity.other.attribute-name.agentlet" },
+            "2": { "name": "punctuation.separator.key-value.html" }
+          }
+        },
+        { "include": "#attribute" }
+      ]
+    },
+    "comment": {
+      "begin": "<!--",
+      "end": "-->",
+      "name": "comment.block.html",
+      "captures": {
+        "0": { "name": "punctuation.definition.comment.html" }
+      }
+    },
+    "doctype": {
+      "begin": "(<!)([Dd][Oo][Cc][Tt][Yy][Pp][Ee])",
+      "end": "(>)",
+      "name": "meta.tag.sgml.doctype.html",
+      "captures": {
+        "1": { "name": "punctuation.definition.tag.html" },
+        "2": { "name": "entity.name.tag.doctype.html" }
+      },
+      "patterns": [
+        {
+          "match": "html",
+          "name": "variable.language.doctype.html"
+        }
+      ]
+    },
+    "script": {
+      "begin": "(<)(script)\\b",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.tag.begin.html" },
+        "2": { "name": "entity.name.tag.script.html" }
+      },
+      "end": "(</)(script)(>)",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.tag.begin.html" },
+        "2": { "name": "entity.name.tag.script.html" },
+        "3": { "name": "punctuation.definition.tag.end.html" }
+      },
+      "patterns": [
+        {
+          "begin": "\\G",
+          "end": "(>)",
+          "endCaptures": {
+            "1": { "name": "punctuation.definition.tag.end.html" }
+          },
+          "patterns": [
+            { "include": "#attribute" }
+          ]
+        },
+        {
+          "begin": "(?<=>)",
+          "end": "(?=</script)",
+          "contentName": "source.js",
+          "patterns": [
+            { "include": "source.js" }
+          ]
+        }
+      ]
+    },
+    "style": {
+      "begin": "(<)(style)\\b",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.tag.begin.html" },
+        "2": { "name": "entity.name.tag.style.html" }
+      },
+      "end": "(</)(style)(>)",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.tag.begin.html" },
+        "2": { "name": "entity.name.tag.style.html" },
+        "3": { "name": "punctuation.definition.tag.end.html" }
+      },
+      "patterns": [
+        {
+          "begin": "\\G",
+          "end": "(>)",
+          "endCaptures": {
+            "1": { "name": "punctuation.definition.tag.end.html" }
+          },
+          "patterns": [
+            { "include": "#attribute" }
+          ]
+        },
+        {
+          "begin": "(?<=>)",
+          "end": "(?=</style)",
+          "contentName": "source.css",
+          "patterns": [
+            { "include": "source.css" }
+          ]
+        }
+      ]
+    },
+    "tag": {
+      "begin": "(</?)(\\w[\\w:-]*)",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.tag.begin.html" },
+        "2": { "name": "entity.name.tag.html" }
+      },
+      "end": "(/?>)",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.tag.end.html" }
+      },
+      "patterns": [
+        { "include": "#attribute" }
+      ]
+    },
+    "attribute": {
+      "patterns": [
+        {
+          "match": "(\\w[\\w-]*)(=)(\"[^\"]*\")",
+          "captures": {
+            "1": { "name": "entity.other.attribute-name.html" },
+            "2": { "name": "punctuation.separator.key-value.html" },
+            "3": { "name": "string.quoted.double.html" }
+          }
+        },
+        {
+          "match": "(\\w[\\w-]*)(=)('[^']*')",
+          "captures": {
+            "1": { "name": "entity.other.attribute-name.html" },
+            "2": { "name": "punctuation.separator.key-value.html" },
+            "3": { "name": "string.quoted.single.html" }
+          }
+        },
+        {
+          "match": "\\w[\\w-]*",
+          "name": "entity.other.attribute-name.html"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,165 @@
+<vbox id="zotagentlet-prefs"
+      onload="Zotero.ZotAgentlet?.hooks.onPrefsEvent('load', { window })"
+      onunload="Zotero.ZotAgentlet?.hooks.onPrefsEvent('unload', { window })">
+
+  <!-- Inference Provider -->
+  <groupbox>
+    <label><html:h2>Inference Provider</html:h2></label>
+    <html:p style="color: #666; margin: 4px 0 12px 0; font-size: 12px;">
+      Select the AI provider for agent inference.
+    </html:p>
+
+    <hbox align="center" style="margin-bottom: 12px;">
+      <label value="Provider:" style="min-width: 120px;" />
+      <menulist id="zotagentlet-pref-provider" native="true" style="min-width: 200px;">
+        <menupopup>
+          <menuitem label="Ollama (Local)" value="ollama" />
+          <menuitem label="OpenAI" value="openai" />
+        </menupopup>
+      </menulist>
+    </hbox>
+
+    <!-- Ollama Settings -->
+    <vbox id="zotagentlet-ollama-settings">
+      <hbox align="center" style="margin-bottom: 8px;">
+        <label value="URL:" style="min-width: 120px;" />
+        <html:input
+          type="text"
+          id="zotagentlet-pref-ollamaUrl"
+          placeholder="http://localhost:11434"
+          style="flex: 1; margin-left: 8px;"
+        />
+      </hbox>
+
+      <hbox align="center" style="margin-bottom: 8px;">
+        <label value="Model:" style="min-width: 120px;" />
+        <html:input
+          type="text"
+          id="zotagentlet-pref-ollamaModel"
+          placeholder="llama3.2"
+          style="flex: 1; margin-left: 8px;"
+        />
+      </hbox>
+
+      <html:p style="color: #666; font-size: 11px; margin: 4px 0;">
+        Install Ollama from ollama.ai and run "ollama serve"
+      </html:p>
+    </vbox>
+
+    <!-- OpenAI Settings -->
+    <vbox id="zotagentlet-openai-settings" style="display: none;">
+      <hbox align="center" style="margin-bottom: 8px;">
+        <label value="API Key:" style="min-width: 120px;" />
+        <html:input
+          type="password"
+          id="zotagentlet-pref-openaiKey"
+          placeholder="sk-..."
+          style="flex: 1; margin-left: 8px;"
+        />
+      </hbox>
+
+      <hbox align="center" style="margin-bottom: 8px;">
+        <label value="Model:" style="min-width: 120px;" />
+        <menulist id="zotagentlet-pref-openaiModel" native="true" style="min-width: 200px;">
+          <menupopup>
+            <menuitem label="GPT-4o Mini" value="gpt-4o-mini" />
+            <menuitem label="GPT-4o" value="gpt-4o" />
+            <menuitem label="GPT-4 Turbo" value="gpt-4-turbo" />
+            <menuitem label="GPT-3.5 Turbo" value="gpt-3.5-turbo" />
+          </menupopup>
+        </menulist>
+      </hbox>
+    </vbox>
+  </groupbox>
+
+  <!-- General Settings -->
+  <groupbox>
+    <label><html:h2>General</html:h2></label>
+
+    <checkbox
+      id="zotagentlet-pref-debug"
+      label="Enable debug logging"
+    />
+  </groupbox>
+
+  <!-- Resource Limits -->
+  <groupbox>
+    <label><html:h2>Resource Limits</html:h2></label>
+    <html:p style="color: #666; margin: 4px 0 12px 0; font-size: 12px;">
+      Limits per agent action invocation to prevent runaway agents.
+    </html:p>
+
+    <hbox align="center" style="margin-bottom: 6px;">
+      <label value="Max execution time (ms):" style="min-width: 180px;" />
+      <html:input
+        type="number"
+        id="zotagentlet-pref-maxExecutionTime"
+        min="10000"
+        max="600000"
+        style="width: 100px;"
+      />
+    </hbox>
+
+    <hbox align="center" style="margin-bottom: 6px;">
+      <label value="Max inference calls:" style="min-width: 180px;" />
+      <html:input
+        type="number"
+        id="zotagentlet-pref-maxInferenceCalls"
+        min="1"
+        max="1000"
+        style="width: 100px;"
+      />
+    </hbox>
+
+    <hbox align="center" style="margin-bottom: 6px;">
+      <label value="Max network requests:" style="min-width: 180px;" />
+      <html:input
+        type="number"
+        id="zotagentlet-pref-maxNetworkRequests"
+        min="1"
+        max="500"
+        style="width: 100px;"
+      />
+    </hbox>
+
+    <hbox align="center">
+      <label value="Max storage (bytes):" style="min-width: 180px;" />
+      <html:input
+        type="number"
+        id="zotagentlet-pref-maxStorageBytes"
+        min="1048576"
+        max="52428800"
+        style="width: 100px;"
+      />
+    </hbox>
+  </groupbox>
+
+  <!-- Installed Agents -->
+  <groupbox>
+    <label><html:h2>Installed Agents</html:h2></label>
+
+    <hbox align="center">
+      <label value="Number of installed agents:" />
+      <label id="zotagentlet-agent-count" style="margin-left: 8px; font-weight: bold;" value="0" />
+    </hbox>
+
+    <button
+      id="zotagentlet-manage-agents-btn"
+      label="Manage Agents..."
+      style="margin-top: 8px;"
+    />
+  </groupbox>
+
+  <!-- About -->
+  <groupbox>
+    <label><html:h2>About</html:h2></label>
+    <hbox>
+      <label class="zotero-text-link"
+             is="zotero-text-link"
+             role="link"
+             href="https://github.com/Agentlet-org/agentlet"
+             value="GitHub Repository" />
+    </hbox>
+  </groupbox>
+
+</vbox>

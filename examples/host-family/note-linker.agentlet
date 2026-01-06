@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<!--
+  NOTE LINKER - Host-Family Agent Example (PKM Apps)
+
+  Demonstrates: Cross-host compatibility with host adapters
+  - Host-family portability (Obsidian, Logseq, Notion, Roam)
+  - Host adapter pattern for format differences
+  - Context queries for notes
+  - Storage for caching analysis results
+  - Confirmation dialogs before modifications
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Note Linker</title>
+
+  <!-- Identity -->
+  <meta name="agentlet" content="0.1">
+  <meta name="agentlet:name" content="note-linker">
+  <meta name="agentlet:version" content="1.0.0">
+  <meta name="agentlet:description" content="Find and create conceptual connections between notes in PKM apps">
+  <meta name="agentlet:author" content="Agentlet Examples">
+  <meta name="agentlet:license" content="MIT">
+  <meta name="agentlet:icon" content="#icon">
+  
+  <!-- Portability: Host-Family - PKM apps -->
+  <meta name="agentlet:portability" content="host-family">
+  <meta name="agentlet:host" content="obsidian:>=1.0.0">
+  <meta name="agentlet:host" content="logseq:>=0.9.0">
+  <meta name="agentlet:host" content="notion:>=2.0.0">
+  <meta name="agentlet:host" content="roam:>=1.0.0">
+  
+  <!-- Capabilities -->
+  <meta name="agentlet:capability" content="context:note:read">
+  <meta name="agentlet:capability" content="context:note:write">
+  <meta name="agentlet:capability" content="context:selection:read">
+  <meta name="agentlet:capability" content="inference:basic">
+  <meta name="agentlet:capability" content="storage">
+  <meta name="agentlet:capability" content="ui:panel">
+  <meta name="agentlet:capability" content="ui:notify">
+  <meta name="agentlet:capability" content="ui:confirm">
+  
+  <!-- Actions -->
+  <meta name="agentlet:action" content="find-connections" 
+        data-label="Find Connections" 
+        data-input="selection"
+        data-description="Find notes related to selection">
+  <meta name="agentlet:action" content="auto-link" 
+        data-label="Auto-Link" 
+        data-input="selection" 
+        data-confirm="true"
+        data-description="Automatically add links to related notes">
+  <meta name="agentlet:action" content="link-map" 
+        data-label="Show Link Map"
+        data-description="Visualize connections">
+  <meta name="agentlet:default-action" content="find-connections">
+  
+  <!-- Preferences -->
+  <meta name="agentlet:preference" content="minSimilarity"
+        data-type="number"
+        data-label="Minimum similarity score (%)"
+        data-default="70"
+        data-min="30"
+        data-max="95">
+  
+  <meta name="agentlet:preference" content="maxLinks"
+        data-type="number"
+        data-label="Maximum links to suggest"
+        data-default="5"
+        data-min="1"
+        data-max="20">
+  
+  <meta name="agentlet:preference" content="linkStyle"
+        data-type="select"
+        data-label="Link insertion style"
+        data-default="inline">
+  <meta name="agentlet:preference:option" content="linkStyle:inline" data-label="Inline links">
+  <meta name="agentlet:preference:option" content="linkStyle:section" data-label="Related notes section">
+  <meta name="agentlet:preference:option" content="linkStyle:footer" data-label="Footer links">
+  
+  <!-- Discovery -->
+  <meta name="agentlet:category" content="note-taking">
+  <meta name="agentlet:tag" content="pkm">
+  <meta name="agentlet:tag" content="links">
+  <meta name="agentlet:tag" content="connections">
+  <meta name="agentlet:tag" content="knowledge-graph">
+</head>
+<body>
+
+<!-- Icon -->
+<svg id="icon" viewBox="0 0 24 24" hidden>
+  <rect width="24" height="24" rx="4" fill="#3b82f6"/>
+  <circle cx="8" cy="8" r="3" fill="white"/>
+  <circle cx="16" cy="8" r="3" fill="white"/>
+  <circle cx="12" cy="16" r="3" fill="white"/>
+  <line x1="10" y1="9" x2="14" y2="9" stroke="white" stroke-width="1.5"/>
+  <line x1="9" y1="10" x2="11" y2="14" stroke="white" stroke-width="1.5"/>
+  <line x1="15" y1="10" x2="13" y2="14" stroke="white" stroke-width="1.5"/>
+</svg>
+
+<!-- Browser Preview -->
+<noscript>
+<style>
+  body { font-family: system-ui; max-width: 600px; margin: 2rem auto; padding: 1rem; }
+  h1 { display: flex; align-items: center; gap: 0.5rem; }
+  h1 svg { width: 32px; height: 32px; }
+  .badge { background: #3b82f6; color: white; padding: 0.125rem 0.5rem; border-radius: 999px; font-size: 0.75rem; }
+  .type { background: #06b6d4; color: white; padding: 0.15rem 0.75rem; border-radius: 4px; font-size: 0.875rem; display: inline-block; margin: 0.5rem 0; }
+  .hosts { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.5rem 0; }
+  .host { background: #f3f4f6; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.875rem; }
+</style>
+<h1>
+  <svg viewBox="0 0 24 24"><rect width="24" height="24" rx="4" fill="#3b82f6"/><circle cx="8" cy="8" r="3" fill="white"/><circle cx="16" cy="8" r="3" fill="white"/><circle cx="12" cy="16" r="3" fill="white"/><line x1="10" y1="9" x2="14" y2="9" stroke="white" stroke-width="1.5"/><line x1="9" y1="10" x2="11" y2="14" stroke="white" stroke-width="1.5"/><line x1="15" y1="10" x2="13" y2="14" stroke="white" stroke-width="1.5"/></svg>
+  Note Linker <span class="badge">v1.0.0</span>
+</h1>
+<div class="type">Host-Family Agent</div>
+<h3>Supported Apps:</h3>
+<div class="hosts">
+  <span class="host">Obsidian</span>
+  <span class="host">Logseq</span>
+  <span class="host">Notion</span>
+  <span class="host">Roam</span>
+</div>
+<p>Find and create conceptual connections between your notes using AI.</p>
+<h3>Actions</h3>
+<ul>
+  <li><strong>Find Connections</strong> - Discover related notes</li>
+  <li><strong>Auto-Link</strong> - Insert links to related content</li>
+  <li><strong>Link Map</strong> - Visualize the connection graph</li>
+</ul>
+</noscript>
+
+<!-- Agent Code -->
+<script type="module">
+const { bridge } = window;
+
+// ════════════════════════════════════════════════════════════════════
+// HOST ADAPTERS
+// ════════════════════════════════════════════════════════════════════
+
+const hostAdapters = {
+  obsidian: {
+    formatLink: (title) => `[[${title}]]`,
+    formatSection: (links) => `\n\n## Related Notes\n${links.map(l => `- [[${l.title}]]`).join('\n')}`,
+    formatFooter: (links) => `\n\n---\n**See also:** ${links.map(l => `[[${l.title}]]`).join(', ')}`
+  },
+  
+  logseq: {
+    formatLink: (title) => `[[${title}]]`,
+    formatSection: (links) => `\n\n- ## Related Notes\n${links.map(l => `  - [[${l.title}]]`).join('\n')}`,
+    formatFooter: (links) => `\n- ---\n- **See also:** ${links.map(l => `[[${l.title}]]`).join(', ')}`
+  },
+  
+  notion: {
+    formatLink: (title, id) => `[${title}](/${id})`,
+    formatSection: (links) => `\n\n## Related Notes\n${links.map(l => `- [${l.title}](/${l.id})`).join('\n')}`,
+    formatFooter: (links) => `\n\n---\n**See also:** ${links.map(l => `[${l.title}](/${l.id})`).join(', ')}`
+  },
+  
+  roam: {
+    formatLink: (title) => `[[${title}]]`,
+    formatSection: (links) => `\n\n**Related Notes**\n${links.map(l => `    - [[${l.title}]]`).join('\n')}`,
+    formatFooter: (links) => `\n    - **See also:** ${links.map(l => `[[${l.title}]]`).join(', ')}`
+  },
+  
+  // Default fallback
+  default: {
+    formatLink: (title) => `[[${title}]]`,
+    formatSection: (links) => `\n\n## Related Notes\n${links.map(l => `- [[${l.title}]]`).join('\n')}`,
+    formatFooter: (links) => `\n\n---\nSee also: ${links.map(l => `[[${l.title}]]`).join(', ')}`
+  }
+};
+
+function getAdapter() {
+  return hostAdapters[bridge.host.name] || hostAdapters.default;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// LIFECYCLE
+// ════════════════════════════════════════════════════════════════════
+
+bridge.onInstall(async ({ previousVersion }) => {
+  await bridge.storage.set('connectionCache', {});
+  
+  if (!previousVersion) {
+    await bridge.ui.notify(`Note Linker installed for ${bridge.host.name}!`, "success");
+  }
+});
+
+bridge.onActivate(async () => {
+  console.log(`Note Linker activated on ${bridge.host.name} v${bridge.host.version}`);
+});
+
+// ════════════════════════════════════════════════════════════════════
+// FIND CONNECTIONS ACTION
+// ════════════════════════════════════════════════════════════════════
+
+bridge.action('find-connections', async (input) => {
+  const selection = input.items || await bridge.context.selection.get();
+  
+  if (selection.length === 0) {
+    await bridge.ui.notify('Select a note to find connections', 'warning');
+    return;
+  }
+  
+  const note = selection[0];
+  const prefs = await bridge.preferences.get();
+  
+  await bridge.activity.start('Finding connections');
+  
+  // Get all notes
+  const allNotes = await bridge.context.query('note', {});
+  const otherNotes = allNotes.filter(n => n.id !== note.id);
+  
+  if (otherNotes.length === 0) {
+    await bridge.ui.notify('No other notes to compare', 'info');
+    return;
+  }
+  
+  await bridge.activity.step('Analyzing content');
+  
+  // Use AI to find connections
+  const analysisPrompt = `Analyze the following note and find the most conceptually related notes from the list.
+
+CURRENT NOTE:
+Title: ${note.title}
+Content: ${note.content?.slice(0, 1000) || '(no content)'}
+
+OTHER NOTES:
+${otherNotes.slice(0, 50).map((n, i) => `${i + 1}. "${n.title}" - ${n.content?.slice(0, 200) || '(no content)'}`).join('\n')}
+
+Return a JSON array of the top ${prefs.maxLinks} most related notes with similarity scores:
+[{"index": 1, "title": "Note Title", "reason": "Brief reason for connection", "similarity": 85}]
+
+Only include notes with similarity >= ${prefs.minSimilarity}%.`;
+
+  const response = await bridge.inference({
+    messages: [
+      { role: 'system', content: 'You are an expert at finding conceptual connections between notes. Analyze semantic meaning, shared topics, and potential links.' },
+      { role: 'user', content: analysisPrompt }
+    ],
+    max_tokens: 500
+  });
+  
+  let connections;
+  try {
+    connections = JSON.parse(response);
+    if (!Array.isArray(connections)) throw new Error('Not an array');
+  } catch (e) {
+    await bridge.ui.notify('Failed to analyze connections', 'error');
+    return;
+  }
+  
+  // Map back to actual notes
+  const connectedNotes = connections
+    .filter(c => c.index >= 1 && c.index <= otherNotes.length)
+    .map(c => ({
+      ...otherNotes[c.index - 1],
+      reason: c.reason,
+      similarity: c.similarity
+    }));
+  
+  // Cache the results
+  const cache = await bridge.storage.get('connectionCache') || {};
+  cache[note.id] = {
+    connections: connectedNotes,
+    timestamp: Date.now()
+  };
+  await bridge.storage.set('connectionCache', cache);
+  
+  await bridge.activity.complete('Done');
+  
+  // Show results
+  const adapter = getAdapter();
+  
+  await bridge.ui.panel({
+    title: `Connections for "${note.title}"`,
+    content: `
+      <div style="font-family: system-ui; padding: 1rem;">
+        ${connectedNotes.length === 0 ? `
+          <p style="color: #666;">No strong connections found above ${prefs.minSimilarity}% similarity.</p>
+        ` : `
+          <ul style="list-style: none; margin: 0; padding: 0;">
+            ${connectedNotes.map(n => `
+              <li style="padding: 0.75rem; margin-bottom: 0.5rem; background: #f9fafb; border-radius: 8px; border-left: 3px solid hsl(${n.similarity * 1.2}, 70%, 50%);">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <strong>${n.title}</strong>
+                  <span style="background: hsl(${n.similarity * 1.2}, 70%, 90%); color: hsl(${n.similarity * 1.2}, 70%, 30%); padding: 0.125rem 0.5rem; border-radius: 999px; font-size: 0.75rem;">
+                    ${n.similarity}%
+                  </span>
+                </div>
+                <p style="margin: 0.5rem 0 0; font-size: 0.875rem; color: #666;">${n.reason}</p>
+                <code style="display: block; margin-top: 0.5rem; font-size: 0.75rem; color: #3b82f6;">${adapter.formatLink(n.title, n.id)}</code>
+              </li>
+            `).join('')}
+          </ul>
+          
+          <p style="margin-top: 1rem; font-size: 0.875rem; color: #888;">
+            Use "Auto-Link" to insert these connections into your note.
+          </p>
+        `}
+        
+        <div style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid #e5e7eb; font-size: 0.75rem; color: #9ca3af;">
+          Host: ${bridge.host.name} | Analyzed ${otherNotes.length} notes
+        </div>
+      </div>
+    `,
+    width: 450
+  });
+  
+  return connectedNotes;
+});
+
+// ════════════════════════════════════════════════════════════════════
+// AUTO-LINK ACTION
+// ════════════════════════════════════════════════════════════════════
+
+bridge.action('auto-link', async (input) => {
+  const selection = input.items || await bridge.context.selection.get();
+  
+  if (selection.length === 0) {
+    await bridge.ui.notify('Select a note to auto-link', 'warning');
+    return;
+  }
+  
+  const note = selection[0];
+  const prefs = await bridge.preferences.get();
+  
+  // Check cache first
+  const cache = await bridge.storage.get('connectionCache') || {};
+  let connections = cache[note.id]?.connections;
+  
+  // If no cache or stale, find connections first
+  if (!connections || (Date.now() - cache[note.id]?.timestamp > 3600000)) {
+    await bridge.activity.start('Finding connections');
+    
+    // Run find-connections logic
+    const allNotes = await bridge.context.query('note', {});
+    const otherNotes = allNotes.filter(n => n.id !== note.id);
+    
+    const response = await bridge.inference({
+      messages: [
+        { role: 'system', content: 'Find conceptually related notes. Return JSON array with index, title, reason, similarity.' },
+        { role: 'user', content: `Note: "${note.title}"\nContent: ${note.content?.slice(0, 500)}\n\nOther notes:\n${otherNotes.slice(0, 30).map((n, i) => `${i + 1}. "${n.title}"`).join('\n')}\n\nReturn top ${prefs.maxLinks} with similarity >= ${prefs.minSimilarity}%` }
+      ],
+      max_tokens: 300
+    });
+    
+    try {
+      const parsed = JSON.parse(response);
+      connections = parsed
+        .filter(c => c.index >= 1 && c.index <= otherNotes.length)
+        .map(c => ({
+          ...otherNotes[c.index - 1],
+          reason: c.reason,
+          similarity: c.similarity
+        }));
+    } catch (e) {
+      await bridge.ui.notify('Failed to find connections', 'error');
+      return;
+    }
+  }
+  
+  if (connections.length === 0) {
+    await bridge.ui.notify('No connections to link', 'info');
+    return;
+  }
+  
+  await bridge.activity.step('Adding links');
+  
+  const adapter = getAdapter();
+  let linkText;
+  
+  switch (prefs.linkStyle) {
+    case 'inline':
+      // For inline, we'll suggest where to add links
+      linkText = connections.map(c => adapter.formatLink(c.title, c.id)).join(', ');
+      await bridge.ui.notify(`Suggested links: ${linkText}`, 'info');
+      break;
+      
+    case 'section':
+      linkText = adapter.formatSection(connections);
+      await bridge.context.update('note', note.id, {
+        content: note.content + linkText
+      });
+      break;
+      
+    case 'footer':
+      linkText = adapter.formatFooter(connections);
+      await bridge.context.update('note', note.id, {
+        content: note.content + linkText
+      });
+      break;
+  }
+  
+  await bridge.activity.complete('Links added');
+  await bridge.ui.notify(`Added ${connections.length} links to "${note.title}"`, 'success');
+  
+  return { note: note.title, linksAdded: connections.length };
+});
+
+// ════════════════════════════════════════════════════════════════════
+// LINK MAP ACTION
+// ════════════════════════════════════════════════════════════════════
+
+bridge.action('link-map', async () => {
+  await bridge.activity.start('Building link map');
+  
+  const notes = await bridge.context.query('note', {});
+  const cache = await bridge.storage.get('connectionCache') || {};
+  
+  // Build graph data from cache
+  const nodes = notes.slice(0, 30).map(n => ({
+    id: n.id,
+    title: n.title.slice(0, 30),
+    connections: cache[n.id]?.connections?.length || 0
+  }));
+  
+  const edges = [];
+  for (const [noteId, data] of Object.entries(cache)) {
+    if (data.connections) {
+      for (const conn of data.connections) {
+        if (nodes.find(n => n.id === conn.id)) {
+          edges.push({
+            from: noteId,
+            to: conn.id,
+            similarity: conn.similarity
+          });
+        }
+      }
+    }
+  }
+  
+  await bridge.activity.complete('Done');
+  
+  await bridge.ui.panel({
+    title: 'Link Map',
+    content: `
+      <div style="font-family: system-ui; padding: 1rem;">
+        <h3 style="margin-top: 0;">Knowledge Graph</h3>
+        
+        <div style="margin: 1rem 0;">
+          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem;">
+            <div style="padding: 0.75rem; background: #f3f4f6; border-radius: 8px; text-align: center;">
+              <div style="font-size: 1.5rem; font-weight: bold;">${nodes.length}</div>
+              <div style="font-size: 0.75rem; color: #666;">Notes</div>
+            </div>
+            <div style="padding: 0.75rem; background: #f3f4f6; border-radius: 8px; text-align: center;">
+              <div style="font-size: 1.5rem; font-weight: bold;">${edges.length}</div>
+              <div style="font-size: 0.75rem; color: #666;">Connections</div>
+            </div>
+          </div>
+        </div>
+        
+        ${nodes.filter(n => n.connections > 0).length > 0 ? `
+          <h4>Most Connected Notes</h4>
+          <ul style="margin: 0; padding-left: 1.25rem; font-size: 0.875rem;">
+            ${nodes.sort((a, b) => b.connections - a.connections).slice(0, 5).filter(n => n.connections > 0).map(n => `
+              <li><strong>${n.title}</strong> (${n.connections} connections)</li>
+            `).join('')}
+          </ul>
+        ` : `
+          <p style="color: #666;">No connections cached yet. Use "Find Connections" on some notes first.</p>
+        `}
+        
+        <p style="margin-top: 1rem; font-size: 0.875rem; color: #888;">
+          Run "Find Connections" on more notes to build your knowledge graph.
+        </p>
+      </div>
+    `,
+    width: 400
+  });
+});
+</script>
+
+</body>
+</html>

@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<!--
+  TODO COLLECTOR - Adaptive Agent Example
+
+  Demonstrates: Workspace-wide content analysis
+  - Perceive with scope:'workspace' for all files
+  - Pattern extraction (TODO, FIXME, HACK markers)
+  - Storage for tracking history
+  - Categorization and priority ranking
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>TODO Collector</title>
+
+  <meta name="agentlet" content="0.1">
+  <meta name="agentlet:name" content="todo-collector">
+  <meta name="agentlet:version" content="1.0.0">
+  <meta name="agentlet:description" content="Finds and organizes TODOs, FIXMEs, and other code comments across your project">
+  <meta name="agentlet:author" content="Agentlet Project">
+  <meta name="agentlet:license" content="MIT">
+
+  <!-- Adaptive: works in any host with file access -->
+  <meta name="agentlet:portability" content="adaptive">
+
+  <!-- Required capabilities -->
+  <meta name="agentlet:requires" content="perceive">
+  <meta name="agentlet:requires" content="inference:basic">
+  <meta name="agentlet:requires" content="ui:panel">
+  <meta name="agentlet:requires" content="storage">
+
+  <!-- Optional capabilities -->
+  <meta name="agentlet:optional" content="ui:notify">
+  <meta name="agentlet:optional" content="context:file:read">
+
+  <!-- Actions -->
+  <meta name="agentlet:action" content="scan" data-label="Scan for TODOs">
+  <meta name="agentlet:action" content="scan-file" data-label="Scan Current File">
+  <meta name="agentlet:action" content="view-dashboard" data-label="TODO Dashboard">
+  <meta name="agentlet:action" content="prioritize" data-label="Prioritize TODOs">
+
+  <!-- User preferences -->
+  <meta name="agentlet:preference" content="patterns"
+        data-type="text"
+        data-label="Comment patterns (comma-separated)"
+        data-default="TODO,FIXME,HACK,XXX,BUG,NOTE">
+
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 1rem;
+    }
+    .todo-list {
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .todo-item {
+      padding: 0.75rem;
+      margin-bottom: 0.5rem;
+      background: #f8fafc;
+      border-radius: 6px;
+      border-left: 3px solid #cbd5e1;
+    }
+    .todo-item.priority-high { border-left-color: #dc2626; }
+    .todo-item.priority-medium { border-left-color: #f59e0b; }
+    .todo-item.priority-low { border-left-color: #22c55e; }
+    .todo-type {
+      font-weight: 600;
+      font-size: 0.75rem;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      display: inline-block;
+      margin-bottom: 0.25rem;
+    }
+    .type-TODO { background: #dbeafe; color: #1e40af; }
+    .type-FIXME { background: #fef3c7; color: #92400e; }
+    .type-HACK { background: #fce7f3; color: #9d174d; }
+    .type-BUG { background: #fee2e2; color: #991b1b; }
+    .type-NOTE { background: #d1fae5; color: #065f46; }
+    .todo-location {
+      font-size: 0.75rem;
+      color: #64748b;
+      margin-top: 0.25rem;
+    }
+    .todo-text {
+      margin: 0.25rem 0;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    .stat-card {
+      background: #f1f5f9;
+      padding: 0.75rem;
+      border-radius: 6px;
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #1e293b;
+    }
+    .stat-label {
+      font-size: 0.75rem;
+      color: #64748b;
+    }
+    .filter-bar {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+    .filter-btn {
+      padding: 0.25rem 0.75rem;
+      border: 1px solid #e2e8f0;
+      border-radius: 999px;
+      background: white;
+      font-size: 0.75rem;
+      cursor: pointer;
+    }
+    .filter-btn.active {
+      background: #3b82f6;
+      color: white;
+      border-color: #3b82f6;
+    }
+  </style>
+</head>
+<body>
+
+<noscript>
+  <h1>TODO Collector</h1>
+  <p>Finds and organizes code comments like TODO, FIXME, HACK, and BUG.</p>
+</noscript>
+
+<script type="module">
+const { bridge } = window;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TODO SCANNING
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function scanForTodos(scope = 'workspace') {
+  const prefs = await bridge.preferences?.get() || {};
+  const patterns = (prefs.patterns || 'TODO,FIXME,HACK,XXX,BUG,NOTE')
+    .split(',')
+    .map(p => p.trim());
+
+  await bridge.activity.start(`Scanning ${scope} for comments...`);
+
+  // Get content to scan
+  let content;
+  try {
+    if (scope === 'file') {
+      const context = await bridge.perceive({ scope: 'selection' });
+      content = context.items || [];
+    } else {
+      const context = await bridge.perceive({
+        scope: 'workspace',
+        include: ['files']
+      });
+      content = context.items || [];
+    }
+  } catch (e) {
+    await bridge.activity.error(`Scan failed: ${e.message}`);
+    return [];
+  }
+
+  await bridge.activity.log(`Found ${content.length} items to scan`);
+
+  // Use AI to find and categorize TODOs
+  const analysis = await bridge.inference({
+    messages: [
+      {
+        role: 'system',
+        content: `You are scanning code for comment markers. Find all occurrences of: ${patterns.join(', ')}
+
+For each found item, extract:
+- type: the marker type (TODO, FIXME, etc.)
+- text: the comment text after the marker
+- file: file path if available
+- line: line number if available
+- priority: infer priority (high, medium, low) based on urgency words and context
+
+Return JSON: { "todos": [{ "type": "...", "text": "...", "file": "...", "line": 0, "priority": "..." }] }`
+      },
+      {
+        role: 'user',
+        content: JSON.stringify(content).slice(0, 8000)
+      }
+    ]
+  });
+
+  let todos = [];
+  try {
+    const parsed = JSON.parse(analysis);
+    todos = parsed.todos || [];
+  } catch {
+    // If parsing fails, try to extract manually
+    todos = extractTodosManually(content, patterns);
+  }
+
+  await bridge.activity.complete(`Found ${todos.length} items`);
+
+  // Save to storage
+  const stored = await bridge.storage.get('todos') || { items: [], lastScan: null };
+  stored.items = todos;
+  stored.lastScan = new Date().toISOString();
+  await bridge.storage.set('todos', stored);
+
+  return todos;
+}
+
+function extractTodosManually(content, patterns) {
+  const todos = [];
+  const regex = new RegExp(`(${patterns.join('|')})[:.]?\\s*(.+)`, 'gi');
+
+  const processItem = (item, file = 'unknown') => {
+    const text = typeof item === 'string' ? item :
+                 item.content || item.text || JSON.stringify(item);
+
+    const lines = text.split('\n');
+    lines.forEach((line, idx) => {
+      const matches = line.matchAll(regex);
+      for (const match of matches) {
+        todos.push({
+          type: match[1].toUpperCase(),
+          text: match[2].trim(),
+          file: item.path || item.file || file,
+          line: idx + 1,
+          priority: inferPriority(match[2])
+        });
+      }
+    });
+  };
+
+  if (Array.isArray(content)) {
+    content.forEach(item => processItem(item));
+  } else {
+    processItem(content);
+  }
+
+  return todos;
+}
+
+function inferPriority(text) {
+  const lowered = text.toLowerCase();
+  if (lowered.includes('urgent') || lowered.includes('critical') || lowered.includes('asap')) {
+    return 'high';
+  }
+  if (lowered.includes('important') || lowered.includes('soon')) {
+    return 'medium';
+  }
+  return 'low';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DASHBOARD
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function showDashboard(todos = null) {
+  if (!todos) {
+    const stored = await bridge.storage.get('todos');
+    if (!stored || !stored.items) {
+      await bridge.ui.notify?.('No TODOs found. Run a scan first.', 'info');
+      return;
+    }
+    todos = stored.items;
+  }
+
+  // Calculate stats
+  const stats = {
+    total: todos.length,
+    byType: {},
+    byPriority: { high: 0, medium: 0, low: 0 }
+  };
+
+  todos.forEach(todo => {
+    stats.byType[todo.type] = (stats.byType[todo.type] || 0) + 1;
+    stats.byPriority[todo.priority] = (stats.byPriority[todo.priority] || 0) + 1;
+  });
+
+  await bridge.ui.panel({
+    title: `TODO Dashboard (${stats.total} items)`,
+    content: renderDashboard(todos, stats),
+    width: 500
+  });
+}
+
+function renderDashboard(todos, stats) {
+  return `
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-value">${stats.total}</div>
+        <div class="stat-label">Total</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="color: #dc2626;">${stats.byPriority.high}</div>
+        <div class="stat-label">High</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="color: #f59e0b;">${stats.byPriority.medium}</div>
+        <div class="stat-label">Medium</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="color: #22c55e;">${stats.byPriority.low}</div>
+        <div class="stat-label">Low</div>
+      </div>
+    </div>
+
+    <div class="filter-bar">
+      ${Object.keys(stats.byType).map(type => `
+        <button class="filter-btn type-${type}" onclick="filterBy('${type}')">
+          ${type} (${stats.byType[type]})
+        </button>
+      `).join('')}
+    </div>
+
+    <div class="todo-list">
+      ${todos.map(todo => `
+        <div class="todo-item priority-${todo.priority}">
+          <span class="todo-type type-${todo.type}">${todo.type}</span>
+          <p class="todo-text">${escapeHtml(todo.text)}</p>
+          <div class="todo-location">
+            ${todo.file}${todo.line ? `:${todo.line}` : ''}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PRIORITIZATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function prioritizeTodos() {
+  const stored = await bridge.storage.get('todos');
+  if (!stored || !stored.items || stored.items.length === 0) {
+    await bridge.ui.notify?.('No TODOs found. Run a scan first.', 'info');
+    return;
+  }
+
+  await bridge.activity.start('Analyzing TODOs for prioritization...');
+
+  const analysis = await bridge.inference({
+    messages: [
+      {
+        role: 'system',
+        content: `You are a project manager analyzing TODOs. Consider:
+- Security issues should be high priority
+- Bug fixes before features
+- Dependencies (if X depends on Y, Y goes first)
+- Quick wins (easy + impactful)
+
+Reorder the list by suggested priority and add reasoning.
+Return JSON: { "prioritized": [{ ...original fields, "reason": "why this priority" }] }`
+      },
+      {
+        role: 'user',
+        content: JSON.stringify(stored.items)
+      }
+    ]
+  });
+
+  let prioritized;
+  try {
+    const parsed = JSON.parse(analysis);
+    prioritized = parsed.prioritized || stored.items;
+  } catch {
+    prioritized = stored.items;
+  }
+
+  await bridge.activity.complete('Prioritization complete');
+
+  // Update storage
+  stored.items = prioritized;
+  await bridge.storage.set('todos', stored);
+
+  // Show results
+  await bridge.ui.panel({
+    title: 'Prioritized TODOs',
+    content: `
+      <p style="margin-bottom: 1rem; color: #64748b;">
+        Reordered based on urgency, dependencies, and impact.
+      </p>
+      <div class="todo-list">
+        ${prioritized.map((todo, idx) => `
+          <div class="todo-item priority-${todo.priority}">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <span style="font-weight: bold; color: #3b82f6;">#${idx + 1}</span>
+              <span class="todo-type type-${todo.type}">${todo.type}</span>
+            </div>
+            <p class="todo-text">${escapeHtml(todo.text)}</p>
+            ${todo.reason ? `<p style="font-size: 0.75rem; color: #64748b; font-style: italic;">${todo.reason}</p>` : ''}
+            <div class="todo-location">
+              ${todo.file}${todo.line ? `:${todo.line}` : ''}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `,
+    width: 500
+  });
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ACTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+bridge.action('scan', async () => {
+  const todos = await scanForTodos('workspace');
+  if (todos.length > 0) {
+    await showDashboard(todos);
+  } else {
+    await bridge.ui.notify?.('No TODOs found in workspace', 'info');
+  }
+});
+
+bridge.action('scan-file', async () => {
+  const todos = await scanForTodos('file');
+  if (todos.length > 0) {
+    await showDashboard(todos);
+  } else {
+    await bridge.ui.notify?.('No TODOs found in current file', 'info');
+  }
+});
+
+bridge.action('view-dashboard', async () => {
+  await showDashboard();
+});
+
+bridge.action('prioritize', async () => {
+  await prioritizeTodos();
+});
+</script>
+
+</body>
+</html>

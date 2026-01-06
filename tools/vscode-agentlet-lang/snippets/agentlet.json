@@ -1,0 +1,217 @@
+{
+  "Agentlet Boilerplate": {
+    "prefix": "agentlet",
+    "description": "Create a new Agentlet agent",
+    "body": [
+      "<!DOCTYPE html>",
+      "<html lang=\"en\">",
+      "<head>",
+      "  <meta charset=\"UTF-8\">",
+      "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">",
+      "  <title>${1:Agent Name}</title>",
+      "",
+      "  <!-- Agentlet Manifest -->",
+      "  <meta name=\"agentlet\" content=\"0.1\">",
+      "  <meta name=\"agentlet:name\" content=\"${1:Agent Name}\">",
+      "  <meta name=\"agentlet:version\" content=\"${2:1.0.0}\">",
+      "  <meta name=\"agentlet:description\" content=\"${3:Description}\">",
+      "  <meta name=\"agentlet:portability\" content=\"${4|universal,adaptive,host-specific,host-family|}\">",
+      "",
+      "  <!-- Capabilities -->",
+      "  <meta name=\"agentlet:capability\" content=\"inference\">",
+      "",
+      "  <!-- Actions -->",
+      "  <meta name=\"agentlet:action\" content=\"${5:run}\" data-label=\"${6:Run}\" data-description=\"${7:Execute the agent}\">",
+      "</head>",
+      "<body>",
+      "  <script type=\"module\">",
+      "    const bridge = window.bridge;",
+      "",
+      "    bridge.onAction(\"${5:run}\", async (params) => {",
+      "      try {",
+      "        await bridge.activity.start(\"${8:Running...}\");",
+      "",
+      "        $0",
+      "",
+      "        await bridge.activity.complete(\"Done!\");",
+      "      } catch (error) {",
+      "        await bridge.activity.error(error.message);",
+      "      }",
+      "    });",
+      "",
+      "    bridge.onReady();",
+      "  </script>",
+      "</body>",
+      "</html>"
+    ]
+  },
+  "Agentlet Manifest Meta": {
+    "prefix": "meta:agentlet",
+    "description": "Agentlet spec version meta tag",
+    "body": [
+      "<meta name=\"agentlet\" content=\"${1:0.1}\">"
+    ]
+  },
+  "Agentlet Name": {
+    "prefix": "meta:name",
+    "description": "Agentlet name meta tag",
+    "body": [
+      "<meta name=\"agentlet:name\" content=\"${1:Agent Name}\">"
+    ]
+  },
+  "Agentlet Version": {
+    "prefix": "meta:version",
+    "description": "Agentlet version meta tag",
+    "body": [
+      "<meta name=\"agentlet:version\" content=\"${1:1.0.0}\">"
+    ]
+  },
+  "Agentlet Description": {
+    "prefix": "meta:description",
+    "description": "Agentlet description meta tag",
+    "body": [
+      "<meta name=\"agentlet:description\" content=\"${1:Description}\">"
+    ]
+  },
+  "Agentlet Capability": {
+    "prefix": "meta:capability",
+    "description": "Agentlet capability meta tag",
+    "body": [
+      "<meta name=\"agentlet:capability\" content=\"${1|inference,storage,network:|}\">"
+    ]
+  },
+  "Agentlet Action": {
+    "prefix": "meta:action",
+    "description": "Agentlet action meta tag",
+    "body": [
+      "<meta name=\"agentlet:action\" content=\"${1:action-id}\" data-label=\"${2:Label}\" data-description=\"${3:Description}\">"
+    ]
+  },
+  "Agentlet Preference": {
+    "prefix": "meta:preference",
+    "description": "Agentlet preference meta tag",
+    "body": [
+      "<meta name=\"agentlet:preference\" content=\"${1:key}\" data-type=\"${2|string,number,boolean,select|}\" data-label=\"${3:Label}\" data-default=\"${4:default}\">"
+    ]
+  },
+  "Agentlet Preference Option": {
+    "prefix": "meta:preference:option",
+    "description": "Agentlet preference option meta tag",
+    "body": [
+      "<meta name=\"agentlet:preference:option\" content=\"${1:key}:${2:value}\" data-label=\"${3:Label}\">"
+    ]
+  },
+  "Agentlet Intent": {
+    "prefix": "meta:intent",
+    "description": "Agentlet intent meta tag (for adaptive agents)",
+    "body": [
+      "<meta name=\"agentlet:intent\" content=\"${1|tag,organize,summarize,extract,link|}\">"
+    ]
+  },
+  "Agentlet Trigger": {
+    "prefix": "meta:trigger",
+    "description": "Agentlet trigger meta tag",
+    "body": [
+      "<meta name=\"agentlet:trigger\" content=\"${1:event}\" data-action=\"${2:action-id}\">"
+    ]
+  },
+  "Bridge onAction Handler": {
+    "prefix": "bridge:onAction",
+    "description": "Bridge action handler",
+    "body": [
+      "bridge.onAction(\"${1:action-id}\", async (params) => {",
+      "  try {",
+      "    await bridge.activity.start(\"${2:Starting...}\");",
+      "",
+      "    $0",
+      "",
+      "    await bridge.activity.complete(\"Done!\");",
+      "  } catch (error) {",
+      "    await bridge.activity.error(error.message);",
+      "  }",
+      "});"
+    ]
+  },
+  "Bridge Inference Call": {
+    "prefix": "bridge:inference",
+    "description": "Bridge inference request",
+    "body": [
+      "const result = await bridge.inference({",
+      "  messages: [",
+      "    { role: \"system\", content: \"${1:You are a helpful assistant.}\" },",
+      "    { role: \"user\", content: ${2:userMessage} }",
+      "  ],",
+      "  max_tokens: ${3:1000}",
+      "});"
+    ]
+  },
+  "Bridge Perceive": {
+    "prefix": "bridge:perceive",
+    "description": "Bridge perceive request (adaptive agents)",
+    "body": [
+      "const context = await bridge.perceive({",
+      "  scope: \"${1|selection,all,query|}\",",
+      "  understand: ${2:true}",
+      "});"
+    ]
+  },
+  "Bridge Act": {
+    "prefix": "bridge:act",
+    "description": "Bridge act request (adaptive agents)",
+    "body": [
+      "const result = await bridge.act({",
+      "  intent: \"${1:tag}\",",
+      "  items: ${2:items},",
+      "  ${3:params}",
+      "});"
+    ]
+  },
+  "Bridge UI Notify": {
+    "prefix": "bridge:notify",
+    "description": "Bridge notification",
+    "body": [
+      "await bridge.ui.notify({ message: \"${1:Message}\", type: \"${2|success,warning,error,info|}\" });"
+    ]
+  },
+  "Bridge UI Confirm": {
+    "prefix": "bridge:confirm",
+    "description": "Bridge confirmation dialog",
+    "body": [
+      "const confirmed = await bridge.ui.confirm(\"${1:Are you sure?}\");",
+      "if (!confirmed) {",
+      "  return;",
+      "}"
+    ]
+  },
+  "Bridge UI Prompt": {
+    "prefix": "bridge:prompt",
+    "description": "Bridge prompt dialog",
+    "body": [
+      "const input = await bridge.ui.prompt(\"${1:Enter value:}\", \"${2:default}\");",
+      "if (!input) {",
+      "  return;",
+      "}"
+    ]
+  },
+  "Bridge Storage Get": {
+    "prefix": "bridge:storage:get",
+    "description": "Get value from storage",
+    "body": [
+      "const ${1:value} = await bridge.storage.get(\"${2:key}\");"
+    ]
+  },
+  "Bridge Storage Set": {
+    "prefix": "bridge:storage:set",
+    "description": "Set value in storage",
+    "body": [
+      "await bridge.storage.set(\"${1:key}\", ${2:value});"
+    ]
+  },
+  "Bridge Activity Progress": {
+    "prefix": "bridge:progress",
+    "description": "Report progress during action",
+    "body": [
+      "await bridge.activity.progress(${1:current}, ${2:total}, \"${3:Processing...}\");"
+    ]
+  }
+}

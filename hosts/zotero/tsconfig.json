@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "types": ["zotero-types"]
+  },
+  "include": ["src", "typings"],
+  "exclude": ["node_modules", "build", "addon", ".scaffold"]
+}

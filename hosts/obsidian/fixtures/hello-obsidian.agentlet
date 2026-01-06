@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Hello Obsidian</title>
+<meta name="agentlet" content="0.1">
+<meta name="agentlet:name" content="hello-obsidian">
+<meta name="agentlet:version" content="1.0.0">
+<meta name="agentlet:description" content="Simple test agent that says hello">
+<meta name="agentlet:portability" content="host-specific">
+<meta name="agentlet:host" content="obsidian:>=1.0.0">
+<meta name="agentlet:capability" content="ui:notify">
+<meta name="agentlet:action" content="greet" data-label="Say Hello">
+<meta name="agentlet:default-action" content="greet">
+</head>
+<body>
+<script type="module">
+const { bridge } = window;
+
+bridge.action('greet', async () => {
+  await bridge.ui.notify('Hello from Obsidian Agentlet!', 'success');
+});
+</script>
+</body>
+</html>

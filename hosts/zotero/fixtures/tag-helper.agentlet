@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<title>Tag Helper</title>
+<meta name="agentlet" content="0.1">
+<meta name="agentlet:name" content="tag-helper">
+<meta name="agentlet:version" content="1.0.0">
+<meta name="agentlet:description" content="Manage tags on your Zotero items">
+<meta name="agentlet:author" content="ZotAgentlet">
+<meta name="agentlet:license" content="MIT">
+<meta name="agentlet:portability" content="host-specific">
+<meta name="agentlet:host" content="zotero:>=7.0.0">
+
+<!-- Capabilities -->
+<meta name="agentlet:capability" content="context:bibliographic:read">
+<meta name="agentlet:capability" content="context:bibliographic:write">
+<meta name="agentlet:capability" content="context:selection:read">
+<meta name="agentlet:capability" content="ui:notify">
+<meta name="agentlet:capability" content="ui:prompt">
+
+<!-- Actions -->
+<meta name="agentlet:action" content="list-tags" data-label="List All Tags">
+<meta name="agentlet:action" content="add-tag" data-label="Add Tag to Selection">
+<meta name="agentlet:action" content="remove-tag" data-label="Remove Tag from Selection" data-confirm="true">
+<meta name="agentlet:default-action" content="list-tags">
+
+<script type="module">
+const { bridge } = window;
+
+// List all unique tags in library
+bridge.action('list-tags', async () => {
+  const items = await bridge.context.query('bibliographic');
+
+  const tagCounts = {};
+  for (const item of items) {
+    for (const tag of item.tags || []) {
+      tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+    }
+  }
+
+  const sorted = Object.entries(tagCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 20);
+
+  if (sorted.length === 0) {
+    await bridge.ui.notify("No tags found in library", "info");
+    return { tags: [] };
+  }
+
+  const tagList = sorted.map(([tag, count]) => `${tag} (${count})`).join(', ');
+  await bridge.ui.notify(`Top tags: ${tagList}`, "success");
+
+  return { tags: Object.fromEntries(sorted) };
+});
+
+// Add tag to selected items
+bridge.action('add-tag', async () => {
+  const items = await bridge.selection.get();
+
+  if (items.length === 0) {
+    await bridge.ui.notify("No items selected", "warning");
+    return { updated: 0 };
+  }
+
+  const tag = await bridge.ui.prompt("Enter tag to add:", "");
+  if (!tag) {
+    return { updated: 0 };
+  }
+
+  let updated = 0;
+  for (const item of items) {
+    const currentTags = item.tags || [];
+    if (!currentTags.includes(tag)) {
+      await bridge.context.update('bibliographic', item.id, {
+        tags: [...currentTags, tag]
+      });
+      updated++;
+    }
+  }
+
+  await bridge.ui.notify(`Added "${tag}" to ${updated} items`, "success");
+  return { updated, tag };
+});
+
+// Remove tag from selected items
+bridge.action('remove-tag', async () => {
+  const items = await bridge.selection.get();
+
+  if (items.length === 0) {
+    await bridge.ui.notify("No items selected", "warning");
+    return { updated: 0 };
+  }
+
+  const tag = await bridge.ui.prompt("Enter tag to remove:", "");
+  if (!tag) {
+    return { updated: 0 };
+  }
+
+  let updated = 0;
+  for (const item of items) {
+    const currentTags = item.tags || [];
+    if (currentTags.includes(tag)) {
+      await bridge.context.update('bibliographic', item.id, {
+        tags: currentTags.filter(t => t !== tag)
+      });
+      updated++;
+    }
+  }
+
+  await bridge.ui.notify(`Removed "${tag}" from ${updated} items`, "success");
+  return { updated, tag };
+});
+</script>

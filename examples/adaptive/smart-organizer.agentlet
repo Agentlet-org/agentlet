@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<!--
+  SMART ORGANIZER - Adaptive Agent Example
+
+  Demonstrates: Full perceive/act pattern with capability detection
+  - Perceive with understand:true for AI interpretation
+  - Act with multiple intents (add-tags, move-to, favorite)
+  - Capability-aware UI (checks ctx.capabilities)
+  - User confirmation before modifications
+  - Preferences for behavior customization
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Smart Organizer</title>
+
+  <!-- Identity -->
+  <meta name="agentlet" content="0.1">
+  <meta name="agentlet:name" content="smart-organizer">
+  <meta name="agentlet:version" content="1.0.0">
+  <meta name="agentlet:description" content="AI-powered organization that adapts to any host application">
+  <meta name="agentlet:author" content="Agentlet Examples">
+  <meta name="agentlet:license" content="MIT">
+  <meta name="agentlet:icon" content="#icon">
+  
+  <!-- Portability: Adaptive - AI understands any host -->
+  <meta name="agentlet:portability" content="adaptive">
+  
+  <!-- Required capabilities -->
+  <meta name="agentlet:requires" content="inference:basic">
+  <meta name="agentlet:requires" content="perceive">
+  <meta name="agentlet:requires" content="act">
+  
+  <!-- Optional capabilities (uses if available) -->
+  <meta name="agentlet:optional" content="tags">
+  <meta name="agentlet:optional" content="collections">
+  <meta name="agentlet:optional" content="folders">
+  <meta name="agentlet:optional" content="favorites">
+  <meta name="agentlet:optional" content="search">
+  
+  <!-- Intents this agent uses -->
+  <meta name="agentlet:intent" content="add-tags">
+  <meta name="agentlet:intent" content="move-to">
+  <meta name="agentlet:intent" content="favorite">
+  
+  <!-- Standard capabilities -->
+  <meta name="agentlet:capability" content="ui:panel">
+  <meta name="agentlet:capability" content="ui:notify">
+  <meta name="agentlet:capability" content="ui:confirm">
+  <meta name="agentlet:capability" content="storage">
+  
+  <!-- Actions -->
+  <meta name="agentlet:action" content="organize" data-label="Organize Selection" data-input="selection">
+  <meta name="agentlet:action" content="auto-tag" data-label="Auto-Tag" data-input="selection">
+  <meta name="agentlet:action" content="find-similar" data-label="Find Similar">
+  <meta name="agentlet:default-action" content="organize">
+  
+  <!-- Preferences -->
+  <meta name="agentlet:preference" content="confirmActions"
+        data-type="boolean"
+        data-label="Confirm before applying changes"
+        data-default="true">
+  
+  <meta name="agentlet:preference" content="maxTags"
+        data-type="number"
+        data-label="Maximum tags to suggest"
+        data-default="5"
+        data-min="1"
+        data-max="10">
+  
+  <!-- Discovery -->
+  <meta name="agentlet:category" content="productivity">
+  <meta name="agentlet:tag" content="organization">
+  <meta name="agentlet:tag" content="tagging">
+  <meta name="agentlet:tag" content="adaptive">
+</head>
+<body>
+
+<!-- Icon -->
+<svg id="icon" viewBox="0 0 24 24" hidden>
+  <rect width="24" height="24" rx="4" fill="#059669"/>
+  <path d="M4 6h16M4 12h16M4 18h10" stroke="white" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="18" cy="18" r="3" fill="white"/>
+</svg>
+
+<!-- Browser Preview -->
+<noscript>
+<style>
+  body { font-family: system-ui; max-width: 600px; margin: 2rem auto; padding: 1rem; }
+  h1 { display: flex; align-items: center; gap: 0.5rem; }
+  h1 svg { width: 32px; height: 32px; }
+  .badge { background: #059669; color: white; padding: 0.125rem 0.5rem; border-radius: 999px; font-size: 0.75rem; }
+  .type { background: #8b5cf6; color: white; padding: 0.15rem 0.75rem; border-radius: 4px; font-size: 0.875rem; display: inline-block; margin: 0.5rem 0; }
+  .caps { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.5rem 0; }
+  .cap { background: #f3f4f6; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.875rem; }
+</style>
+<h1>
+  <svg viewBox="0 0 24 24"><rect width="24" height="24" rx="4" fill="#059669"/><path d="M4 6h16M4 12h16M4 18h10" stroke="white" stroke-width="2" stroke-linecap="round"/><circle cx="18" cy="18" r="3" fill="white"/></svg>
+  Smart Organizer <span class="badge">v1.0.0</span>
+</h1>
+<div class="type">Adaptive Agent</div>
+<p>AI-powered organization that works in any application. Uses perceive/act to understand and organize your content.</p>
+<h3>Uses these capabilities when available:</h3>
+<div class="caps">
+  <span class="cap">tags</span>
+  <span class="cap">collections</span>
+  <span class="cap">folders</span>
+  <span class="cap">favorites</span>
+  <span class="cap">search</span>
+</div>
+<h3>Actions</h3>
+<ul>
+  <li><strong>Organize Selection</strong> - Analyze and organize selected items</li>
+  <li><strong>Auto-Tag</strong> - Suggest and apply tags automatically</li>
+  <li><strong>Find Similar</strong> - Find items similar to selection</li>
+</ul>
+<p><em>This is an adaptive agent - it works in any host by using AI to understand the context.</em></p>
+</noscript>
+
+<!-- Agent Code -->
+<script type="module">
+const { bridge } = window;
+
+// ════════════════════════════════════════════════════════════════════
+// LIFECYCLE
+// ════════════════════════════════════════════════════════════════════
+
+bridge.onInstall(async ({ previousVersion }) => {
+  if (!previousVersion) {
+    await bridge.ui.notify("Smart Organizer installed!", "success");
+  }
+});
+
+bridge.onActivate(async () => {
+  // Log available capabilities for debugging
+  console.log('Smart Organizer activated');
+  console.log('Host:', bridge.host.name);
+  console.log('Capabilities:', bridge.capabilities);
+});
+
+// ════════════════════════════════════════════════════════════════════
+// ORGANIZE ACTION
+// ════════════════════════════════════════════════════════════════════
+
+bridge.action('organize', async () => {
+  // 1. PERCEIVE - Get context with AI understanding
+  const ctx = await bridge.perceive({
+    scope: 'selection',
+    understand: true
+  });
+  
+  if (ctx.items.length === 0) {
+    await bridge.ui.notify('Select items to organize', 'warning');
+    return;
+  }
+  
+  await bridge.activity.start(`Analyzing ${ctx.items.length} items`);
+  
+  // 2. REASON - Create organization plan
+  const planPrompt = `Based on these items: ${ctx.understanding}
+
+Available host capabilities: ${ctx.capabilities.join(', ')}
+
+Create an organization plan. Return JSON:
+{
+  "analysis": "Brief analysis of the content",
+  "tags": ${ctx.capabilities.includes('tags') ? '["tag1", "tag2", "tag3"]' : 'null (not available)'},
+  "folder": ${ctx.capabilities.includes('folders') || ctx.capabilities.includes('collections') ? '"suggested/path"' : 'null (not available)'},
+  "markFavorite": ${ctx.capabilities.includes('favorites') ? 'true or false' : 'null (not available)'},
+  "reasoning": "Why this organization makes sense"
+}`;
+
+  const planResponse = await bridge.inference({
+    messages: [
+      { role: 'system', content: 'You are an organization expert. Analyze content and suggest organization strategies based on available capabilities.' },
+      { role: 'user', content: planPrompt }
+    ],
+    max_tokens: 500
+  });
+  
+  let plan;
+  try {
+    plan = JSON.parse(planResponse);
+  } catch (e) {
+    await bridge.ui.notify('Failed to create organization plan', 'error');
+    return;
+  }
+  
+  await bridge.activity.step('Plan created');
+  
+  // 3. CONFIRM - Check with user
+  const prefs = await bridge.preferences.get();
+  
+  if (prefs.confirmActions) {
+    const actions = [];
+    if (plan.tags?.length) actions.push(`Add tags: ${plan.tags.join(', ')}`);
+    if (plan.folder) actions.push(`Move to: ${plan.folder}`);
+    if (plan.markFavorite) actions.push('Mark as favorite');
+    
+    if (actions.length === 0) {
+      await bridge.ui.notify('No organization actions available for this host', 'info');
+      return;
+    }
+    
+    const confirmed = await bridge.ui.confirm(
+      `Organization Plan:\n\n${plan.analysis}\n\nActions:\n${actions.map(a => '• ' + a).join('\n')}\n\nApply these changes?`
+    );
+    
+    if (!confirmed) {
+      await bridge.activity.complete('Cancelled');
+      return;
+    }
+  }
+  
+  // 4. ACT - Execute the plan
+  const results = [];
+  
+  if (ctx.capabilities.includes('tags') && plan.tags?.length) {
+    try {
+      await bridge.act({
+        intent: 'add-tags',
+        items: ctx.items,
+        tags: plan.tags
+      });
+      results.push(`Added tags: ${plan.tags.join(', ')}`);
+    } catch (e) {
+      if (e.code !== 'E1001') {
+        results.push(`Failed to add tags: ${e.message}`);
+      }
+    }
+  }
+  
+  const hasLocation = ctx.capabilities.includes('folders') || ctx.capabilities.includes('collections');
+  if (hasLocation && plan.folder) {
+    try {
+      await bridge.act({
+        intent: 'move-to',
+        items: ctx.items,
+        destination: plan.folder
+      });
+      results.push(`Moved to: ${plan.folder}`);
+    } catch (e) {
+      if (e.code !== 'E1001') {
+        results.push(`Failed to move: ${e.message}`);
+      }
+    }
+  }
+  
+  if (ctx.capabilities.includes('favorites') && plan.markFavorite) {
+    try {
+      await bridge.act({
+        intent: 'favorite',
+        items: ctx.items
+      });
+      results.push('Marked as favorite');
+    } catch (e) {
+      if (e.code !== 'E1001') {
+        results.push(`Failed to favorite: ${e.message}`);
+      }
+    }
+  }
+  
+  await bridge.activity.complete('Done');
+  
+  // 5. REPORT - Show results
+  await bridge.ui.panel({
+    title: 'Organization Complete',
+    content: `
+      <div style="font-family: system-ui; padding: 1rem;">
+        <h3 style="margin-top: 0;">Analysis</h3>
+        <p>${plan.analysis}</p>
+        
+        <h3>Actions Taken</h3>
+        <ul style="margin: 0; padding-left: 1.5rem;">
+          ${results.length > 0 
+            ? results.map(r => `<li>${r}</li>`).join('') 
+            : '<li>No actions taken (capabilities not available)</li>'}
+        </ul>
+        
+        <h3>Reasoning</h3>
+        <p style="color: #666;">${plan.reasoning}</p>
+        
+        <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e5e7eb; color: #888; font-size: 0.875rem;">
+          Host: ${ctx.host} v${ctx.hostVersion}<br>
+          Capabilities: ${ctx.capabilities.join(', ')}
+        </div>
+      </div>
+    `,
+    width: 450
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// AUTO-TAG ACTION
+// ════════════════════════════════════════════════════════════════════
+
+bridge.action('auto-tag', async () => {
+  const ctx = await bridge.perceive({
+    scope: 'selection',
+    understand: true
+  });
+  
+  if (ctx.items.length === 0) {
+    await bridge.ui.notify('Select items to tag', 'warning');
+    return;
+  }
+  
+  if (!ctx.capabilities.includes('tags')) {
+    await bridge.ui.notify('This host does not support tags', 'warning');
+    return;
+  }
+  
+  await bridge.activity.start(`Generating tags for ${ctx.items.length} items`);
+  
+  const prefs = await bridge.preferences.get();
+  const maxTags = prefs.maxTags || 5;
+  
+  const tagsResponse = await bridge.inference({
+    messages: [
+      { role: 'system', content: `Generate exactly ${maxTags} relevant tags for the given content. Return only a JSON array of lowercase tag strings.` },
+      { role: 'user', content: ctx.understanding }
+    ],
+    max_tokens: 100
+  });
+  
+  let tags;
+  try {
+    tags = JSON.parse(tagsResponse);
+    if (!Array.isArray(tags)) throw new Error('Not an array');
+  } catch (e) {
+    await bridge.ui.notify('Failed to generate tags', 'error');
+    return;
+  }
+  
+  if (prefs.confirmActions) {
+    const confirmed = await bridge.ui.confirm(
+      `Add these tags to ${ctx.items.length} items?\n\n${tags.join(', ')}`
+    );
+    if (!confirmed) return;
+  }
+  
+  await bridge.act({
+    intent: 'add-tags',
+    items: ctx.items,
+    tags
+  });
+  
+  await bridge.activity.complete('Tags added');
+  await bridge.ui.notify(`Added ${tags.length} tags`, 'success');
+});
+
+// ════════════════════════════════════════════════════════════════════
+// FIND SIMILAR ACTION
+// ════════════════════════════════════════════════════════════════════
+
+bridge.action('find-similar', async () => {
+  const ctx = await bridge.perceive({
+    scope: 'selection',
+    understand: true
+  });
+  
+  if (ctx.items.length === 0) {
+    await bridge.ui.notify('Select an item to find similar content', 'warning');
+    return;
+  }
+  
+  if (!ctx.capabilities.includes('search')) {
+    await bridge.ui.notify('This host does not support search', 'warning');
+    return;
+  }
+  
+  await bridge.activity.start('Finding similar items');
+  
+  // Generate search query from understanding
+  const queryResponse = await bridge.inference({
+    messages: [
+      { role: 'system', content: 'Generate a concise search query to find similar items. Return only the query string, no quotes.' },
+      { role: 'user', content: `Find items similar to: ${ctx.understanding}` }
+    ],
+    max_tokens: 50
+  });
+  
+  const query = queryResponse.trim().replace(/^["']|["']$/g, '');
+  
+  // Search for similar items
+  const searchResult = await bridge.act({
+    intent: 'search',
+    query
+  });
+  
+  await bridge.activity.complete('Search complete');
+  
+  const similar = searchResult.result || [];
+  
+  if (similar.length === 0) {
+    await bridge.ui.notify('No similar items found', 'info');
+    return;
+  }
+  
+  await bridge.ui.panel({
+    title: `Similar Items (${similar.length})`,
+    content: `
+      <div style="font-family: system-ui; padding: 1rem;">
+        <p style="color: #666; margin-top: 0;">Search: "${query}"</p>
+        <ul style="list-style: none; margin: 0; padding: 0;">
+          ${similar.slice(0, 10).map(item => `
+            <li style="padding: 0.5rem 0; border-bottom: 1px solid #e5e7eb;">
+              ${item.title || item.name || JSON.stringify(item).slice(0, 50)}
+            </li>
+          `).join('')}
+        </ul>
+        ${similar.length > 10 ? `<p style="color: #888;">...and ${similar.length - 10} more</p>` : ''}
+      </div>
+    `,
+    width: 400
+  });
+});
+</script>
+
+</body>
+</html>

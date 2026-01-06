@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Note Counter</title>
+<meta name="agentlet" content="0.1">
+<meta name="agentlet:name" content="note-counter">
+<meta name="agentlet:version" content="1.0.0">
+<meta name="agentlet:description" content="Count notes in your vault">
+<meta name="agentlet:portability" content="host-specific">
+<meta name="agentlet:host" content="obsidian:>=1.0.0">
+<meta name="agentlet:capability" content="context:note:read">
+<meta name="agentlet:capability" content="ui:notify">
+<meta name="agentlet:action" content="count" data-label="Count Notes">
+</head>
+<body>
+<script type="module">
+const { bridge } = window;
+
+bridge.action('count', async () => {
+  const notes = await bridge.context.query('note');
+  await bridge.ui.notify(`You have ${notes.length} notes in your vault`, 'info');
+});
+</script>
+</body>
+</html>

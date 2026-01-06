@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<title>Zotero Counter</title>
+<meta name="agentlet" content="0.1">
+<meta name="agentlet:name" content="zotero-counter">
+<meta name="agentlet:version" content="1.0.0">
+<meta name="agentlet:description" content="Count items in your Zotero library">
+<meta name="agentlet:author" content="ZotAgentlet">
+<meta name="agentlet:license" content="MIT">
+<meta name="agentlet:portability" content="host-specific">
+<meta name="agentlet:host" content="zotero:>=7.0.0">
+
+<!-- Capabilities -->
+<meta name="agentlet:capability" content="context:bibliographic:read">
+<meta name="agentlet:capability" content="context:selection:read">
+<meta name="agentlet:capability" content="ui:notify">
+<meta name="agentlet:capability" content="ui:panel">
+
+<!-- Actions -->
+<meta name="agentlet:action" content="count" data-label="Count All Items">
+<meta name="agentlet:action" content="count-selection" data-label="Count Selection">
+<meta name="agentlet:action" content="show-stats" data-label="Show Library Stats">
+<meta name="agentlet:default-action" content="count">
+
+<script type="module">
+const { bridge } = window;
+
+// Count all items
+bridge.action('count', async () => {
+  const items = await bridge.context.query('bibliographic');
+  const count = items.length;
+
+  await bridge.ui.notify(`Your library has ${count} items`, "success");
+  return { count };
+});
+
+// Count selected items
+bridge.action('count-selection', async () => {
+  const items = await bridge.selection.get();
+  const count = items.length;
+
+  if (count === 0) {
+    await bridge.ui.notify("No items selected", "info");
+  } else {
+    await bridge.ui.notify(`Selected: ${count} items`, "success");
+  }
+
+  return { count };
+});
+
+// Show detailed stats
+bridge.action('show-stats', async () => {
+  const items = await bridge.context.query('bibliographic');
+
+  // Count by type
+  const byType = {};
+  for (const item of items) {
+    byType[item.itemType] = (byType[item.itemType] || 0) + 1;
+  }
+
+  // Sort by count
+  const sorted = Object.entries(byType)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+
+  const statsHtml = sorted
+    .map(([type, count]) => `<tr><td>${type}</td><td style="text-align:right">${count}</td></tr>`)
+    .join('');
+
+  await bridge.ui.panel({
+    title: "Library Statistics",
+    content: `
+      <div style="font-family: system-ui; padding: 1rem;">
+        <h3 style="margin: 0 0 1rem 0;">Total: ${items.length} items</h3>
+        <table style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr style="border-bottom: 1px solid #ccc;">
+              <th style="text-align: left; padding: 0.5rem 0;">Type</th>
+              <th style="text-align: right; padding: 0.5rem 0;">Count</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${statsHtml}
+          </tbody>
+        </table>
+      </div>
+    `,
+    width: 350
+  });
+
+  return { total: items.length, byType };
+});
+</script>

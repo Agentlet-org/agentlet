@@ -1,0 +1,51 @@
+{
+  "name": "zot-agentlet",
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Run Agentlet AI agents in Zotero",
+  "config": {
+    "addonName": "ZotAgentlet",
+    "addonID": "zotagentlet@agentlet.org",
+    "addonRef": "zotagentlet",
+    "addonInstance": "ZotAgentlet",
+    "prefsPrefix": "extensions.zotero.zotagentlet"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Agentlet-org/agentlet.git"
+  },
+  "author": "Agentlet",
+  "bugs": {
+    "url": "https://github.com/Agentlet-org/agentlet/issues"
+  },
+  "homepage": "https://github.com/Agentlet-org/agentlet",
+  "license": "MIT",
+  "scripts": {
+    "start": "zotero-plugin serve",
+    "build": "zotero-plugin build",
+    "build:check": "zotero-plugin build && tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "lint:check": "prettier --check . && eslint .",
+    "lint:fix": "prettier --write . && eslint . --fix",
+    "release": "zotero-plugin release",
+    "test": "zotero-plugin test"
+  },
+  "dependencies": {
+    "@agentlet/host-sdk": "*",
+    "zotero-plugin-toolkit": "^5.1.0-beta.13",
+    "@huggingface/transformers": "^3.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "eslint": "^9.39.2",
+    "prettier": "^3.7.4",
+    "typescript": "^5.9.3",
+    "zotero-plugin-scaffold": "^0.8.2",
+    "zotero-types": "^4.1.0-beta.4"
+  },
+  "prettier": {
+    "printWidth": 80,
+    "tabWidth": 2,
+    "endOfLine": "lf"
+  }
+}

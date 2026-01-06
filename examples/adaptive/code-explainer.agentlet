@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<!--
+  CODE EXPLAINER - Adaptive Agent Example
+
+  Demonstrates: Selection-based code analysis
+  - Perceive selection with understand:true
+  - Multiple explanation levels (simple, detailed, expert)
+  - Context-aware explanations using AI understanding
+  - Panel UI for formatted output
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Code Explainer</title>
+
+  <meta name="agentlet" content="0.1">
+  <meta name="agentlet:name" content="code-explainer">
+  <meta name="agentlet:version" content="1.0.0">
+  <meta name="agentlet:description" content="Explains selected code in plain language with context awareness">
+  <meta name="agentlet:author" content="Agentlet Project">
+  <meta name="agentlet:license" content="MIT">
+
+  <!-- Adaptive: works in any editor that supports perceive/act -->
+  <meta name="agentlet:portability" content="adaptive">
+
+  <!-- Required capabilities -->
+  <meta name="agentlet:requires" content="perceive">
+  <meta name="agentlet:requires" content="inference:basic">
+  <meta name="agentlet:requires" content="ui:panel">
+
+  <!-- Optional: enhanced experience if available -->
+  <meta name="agentlet:optional" content="storage">
+  <meta name="agentlet:optional" content="ui:notify">
+
+  <!-- Actions -->
+  <meta name="agentlet:action" content="explain" data-label="Explain Code">
+  <meta name="agentlet:action" content="explain-detailed" data-label="Detailed Explanation">
+  <meta name="agentlet:action" content="explain-for-beginner" data-label="Explain for Beginner">
+
+  <!-- User preferences -->
+  <meta name="agentlet:preference" content="verbosity"
+        data-type="select"
+        data-label="Default verbosity"
+        data-default="normal">
+  <meta name="agentlet:preference:option" content="verbosity:brief" data-label="Brief">
+  <meta name="agentlet:preference:option" content="verbosity:normal" data-label="Normal">
+  <meta name="agentlet:preference:option" content="verbosity:detailed" data-label="Detailed">
+
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 1rem;
+      line-height: 1.6;
+    }
+    .explanation {
+      background: #f8fafc;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-top: 1rem;
+    }
+    .code-context {
+      background: #1e293b;
+      color: #e2e8f0;
+      padding: 0.75rem;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 0.875rem;
+      overflow-x: auto;
+      margin-bottom: 1rem;
+    }
+    .section-title {
+      font-weight: 600;
+      color: #475569;
+      margin-top: 1rem;
+      margin-bottom: 0.5rem;
+    }
+    .concepts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+    .concept-tag {
+      background: #dbeafe;
+      color: #1e40af;
+      padding: 0.25rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+
+<noscript>
+  <h1>Code Explainer</h1>
+  <p>This agent explains selected code in plain language.</p>
+  <p><strong>Actions:</strong></p>
+  <ul>
+    <li>Explain Code - Standard explanation</li>
+    <li>Detailed Explanation - In-depth analysis</li>
+    <li>Explain for Beginner - Simplified explanation</li>
+  </ul>
+</noscript>
+
+<script type="module">
+const { bridge } = window;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CORE EXPLANATION LOGIC
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function explainCode(verbosityLevel, audienceLevel = 'developer') {
+  // ─────────────────────────────────────────────────────────────────────────
+  // STAGE 1: OBSERVATION
+  // Show what we perceive before acting
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const context = await bridge.perceive({
+    scope: 'selection',
+    understand: true
+  });
+
+  if (!context.items || context.items.length === 0) {
+    await bridge.ui.notify?.('Select some code first', 'warning')
+      || await bridge.ui.panel({
+        title: 'No Selection',
+        content: '<p>Please select some code to explain.</p>'
+      });
+    return;
+  }
+
+  // Extract code content - adapt to different host data structures
+  const codeContent = extractCode(context);
+
+  if (!codeContent || codeContent.trim().length === 0) {
+    await bridge.ui.notify?.('No code content found in selection', 'warning');
+    return;
+  }
+
+  await bridge.activity.start('Analyzing code...');
+  await bridge.activity.log(`Detected: ${context.understanding || 'code'}`);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // STAGE 2: REASONING
+  // AI analyzes and explains
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const systemPrompt = buildSystemPrompt(verbosityLevel, audienceLevel);
+
+  let explanation;
+  try {
+    explanation = await bridge.inference({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: codeContent }
+      ]
+    });
+    console.log('[code-explainer] Inference result type:', typeof explanation);
+    console.log('[code-explainer] Inference result:', explanation?.substring?.(0, 200) || explanation);
+  } catch (inferenceError) {
+    console.error('[code-explainer] Inference failed:', inferenceError);
+    await bridge.ui.notify?.('Inference failed: ' + inferenceError.message, 'error');
+    return;
+  }
+
+  // Handle different response formats
+  let explanationText = explanation;
+  if (typeof explanation === 'object' && explanation !== null) {
+    explanationText = explanation.text || explanation.content || JSON.stringify(explanation);
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(explanationText);
+    console.log('[code-explainer] Parsed as JSON');
+  } catch {
+    console.log('[code-explainer] Not JSON, using as plain text');
+    // If not JSON, treat as plain text explanation
+    parsed = {
+      summary: String(explanationText),
+      concepts: [],
+      stepByStep: null,
+      suggestions: null
+    };
+  }
+
+  await bridge.activity.complete('Explanation ready');
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // STAGE 3: PRESENTATION
+  // Show the explanation with full transparency
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Save to history if storage available (skip if not granted)
+  console.log('[code-explainer] Checking storage...');
+  // Skip storage entirely - it's optional and might hang if not permitted
+
+  // Render explanation
+  try {
+    console.log('[code-explainer] Creating panel...');
+    const panelContent = renderExplanation(codeContent, parsed, verbosityLevel);
+    console.log('[code-explainer] Panel content length:', panelContent.length);
+
+    await bridge.ui.panel({
+      title: `Code Explanation (${audienceLevel})`,
+      content: panelContent,
+      width: 550
+    });
+    console.log('[code-explainer] Panel created successfully');
+  } catch (panelError) {
+    console.error('[code-explainer] Panel creation failed:', panelError);
+    await bridge.ui.notify?.('Failed to show explanation: ' + panelError.message, 'error');
+  }
+}
+
+function extractCode(context) {
+  // Adaptive extraction - handle different host data structures
+  const item = context.items[0];
+
+  // Try common patterns
+  if (typeof item === 'string') return item;
+  if (item.content) return item.content;
+  if (item.text) return item.text;
+  if (item.code) return item.code;
+  if (item.value) return item.value;
+  if (item.selection) return item.selection;
+
+  // For VS Code, might be in document.getText() result
+  if (item.document?.content) return item.document.content;
+
+  // Last resort: stringify
+  return JSON.stringify(item);
+}
+
+function buildSystemPrompt(verbosity, audience) {
+  const verbosityInstructions = {
+    brief: 'Keep the explanation concise, 2-3 sentences maximum.',
+    normal: 'Provide a balanced explanation with key details.',
+    detailed: 'Give a thorough explanation covering all aspects.'
+  };
+
+  const audienceInstructions = {
+    developer: 'Assume the reader is a developer who understands programming concepts.',
+    beginner: 'Explain as if to someone new to programming. Define technical terms.',
+    expert: 'Be technical and precise, skip basic explanations.'
+  };
+
+  return `You are a code explanation assistant. Analyze the provided code and explain it clearly.
+
+${verbosityInstructions[verbosity] || verbosityInstructions.normal}
+${audienceInstructions[audience] || audienceInstructions.developer}
+
+Return JSON:
+{
+  "summary": "One paragraph summary of what this code does",
+  "language": "detected programming language",
+  "concepts": ["key concept 1", "key concept 2"],
+  "stepByStep": ["step 1", "step 2"] or null if brief,
+  "potentialIssues": ["issue 1"] or null if none obvious,
+  "suggestions": ["improvement 1"] or null if code is fine
+}`;
+}
+
+function renderExplanation(code, parsed, verbosity) {
+  const codePreview = code.length > 300
+    ? code.slice(0, 300) + '...'
+    : code;
+
+  let html = `
+    <div class="code-context">
+      <pre style="margin: 0; white-space: pre-wrap;">${escapeHtml(codePreview)}</pre>
+    </div>
+
+    <div class="explanation">
+      <div class="section-title">Summary</div>
+      <p style="margin: 0;">${escapeHtml(parsed.summary || 'No summary available')}</p>
+
+      ${parsed.language ? `<p style="margin-top: 0.5rem; color: #64748b; font-size: 0.875rem;">Language: ${parsed.language}</p>` : ''}
+
+      ${parsed.concepts?.length > 0 ? `
+        <div class="section-title">Key Concepts</div>
+        <div class="concepts">
+          ${parsed.concepts.map(c => `<span class="concept-tag">${escapeHtml(c)}</span>`).join('')}
+        </div>
+      ` : ''}
+
+      ${verbosity !== 'brief' && parsed.stepByStep?.length > 0 ? `
+        <div class="section-title">Step by Step</div>
+        <ol style="margin: 0; padding-left: 1.25rem;">
+          ${parsed.stepByStep.map(s => `<li>${escapeHtml(s)}</li>`).join('')}
+        </ol>
+      ` : ''}
+
+      ${parsed.potentialIssues?.length > 0 ? `
+        <div class="section-title" style="color: #dc2626;">Potential Issues</div>
+        <ul style="margin: 0; padding-left: 1.25rem;">
+          ${parsed.potentialIssues.map(i => `<li>${escapeHtml(i)}</li>`).join('')}
+        </ul>
+      ` : ''}
+
+      ${parsed.suggestions?.length > 0 ? `
+        <div class="section-title" style="color: #059669;">Suggestions</div>
+        <ul style="margin: 0; padding-left: 1.25rem;">
+          ${parsed.suggestions.map(s => `<li>${escapeHtml(s)}</li>`).join('')}
+        </ul>
+      ` : ''}
+    </div>
+  `;
+
+  return html;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ACTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+bridge.action('explain', async () => {
+  const prefs = await bridge.preferences?.get() || {};
+  await explainCode(prefs.verbosity || 'normal', 'developer');
+});
+
+bridge.action('explain-detailed', async () => {
+  await explainCode('detailed', 'developer');
+});
+
+bridge.action('explain-for-beginner', async () => {
+  await explainCode('detailed', 'beginner');
+});
+</script>
+
+</body>
+</html>

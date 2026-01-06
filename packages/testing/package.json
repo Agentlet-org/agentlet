@@ -1,0 +1,41 @@
+{
+  "name": "@agentlet/testing",
+  "version": "0.1.0",
+  "description": "Testing utilities for Agentlet agents",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "agentlet",
+    "testing",
+    "mock",
+    "harness"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@agentlet/host-sdk": "^0.1.0"
+  },
+  "peerDependencies": {
+    "jsdom": ">=20.0.0"
+  },
+  "peerDependenciesMeta": {
+    "jsdom": {
+      "optional": false
+    }
+  },
+  "devDependencies": {
+    "@types/jsdom": "^21.1.6",
+    "jsdom": "^24.0.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  }
+}

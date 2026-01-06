@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<!--
+  TEXT IMPROVER - Universal Agent Example
+
+  Demonstrates: Full-featured universal agent pattern
+  - Multiple actions with default action
+  - AI inference with chat-style messages
+  - User preferences (select type with options)
+  - Activity tracking for progress indicators
+  - UI panels with HTML content
+  - Helper function patterns
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Text Improver</title>
+
+  <!-- ═══ IDENTITY ═══ -->
+  <!--
+    Required: spec version, name, version
+    Optional: description, author, license, homepage, icon
+  -->
+  <meta name="agentlet" content="0.1">
+  <meta name="agentlet:name" content="text-improver">
+  <meta name="agentlet:version" content="1.0.0">
+  <meta name="agentlet:description" content="Improve, summarize, expand, or translate text with AI">
+  <meta name="agentlet:author" content="Agentlet Examples">
+  <meta name="agentlet:license" content="MIT">
+  <meta name="agentlet:icon" content="#icon">
+
+  <!-- ═══ PORTABILITY ═══ -->
+  <!--
+    "universal" - Works in any host, doesn't access host-specific context
+    This agent only uses inference and UI, so it runs everywhere.
+  -->
+  <meta name="agentlet:portability" content="universal">
+
+  <!-- ═══ CAPABILITIES ═══ -->
+  <!--
+    Each capability grants specific permissions:
+    - inference:basic - Access to LLM for text generation
+    - storage        - Persistent key-value storage (for preferences)
+    - ui:prompt      - Show text input dialogs
+    - ui:panel       - Show rich HTML panels
+    - ui:notify      - Show toast notifications
+    - ui:select      - Show selection dialogs
+  -->
+  <meta name="agentlet:capability" content="inference:basic">
+  <meta name="agentlet:capability" content="storage">
+  <meta name="agentlet:capability" content="ui:prompt">
+  <meta name="agentlet:capability" content="ui:panel">
+  <meta name="agentlet:capability" content="ui:notify">
+  <meta name="agentlet:capability" content="ui:select">
+
+  <!-- ═══ ACTIONS ═══ -->
+  <!--
+    Actions are user-triggerable entry points.
+    data-label is shown in the UI.
+    default-action runs when agent is invoked without specifying an action.
+  -->
+  <meta name="agentlet:action" content="improve" data-label="Improve Text">
+  <meta name="agentlet:action" content="summarize" data-label="Summarize">
+  <meta name="agentlet:action" content="expand" data-label="Expand">
+  <meta name="agentlet:action" content="translate" data-label="Translate">
+  <meta name="agentlet:default-action" content="improve">
+
+  <!-- ═══ PREFERENCES ═══ -->
+  <!--
+    User-configurable settings persisted in storage.
+    Types: string, number, boolean, select
+    For select type, define options with preference:option tags.
+  -->
+  <meta name="agentlet:preference" content="targetLanguage"
+        data-type="select"
+        data-label="Default translation language"
+        data-default="es">
+  <meta name="agentlet:preference:option" content="targetLanguage:es" data-label="Spanish">
+  <meta name="agentlet:preference:option" content="targetLanguage:fr" data-label="French">
+  <meta name="agentlet:preference:option" content="targetLanguage:de" data-label="German">
+  <meta name="agentlet:preference:option" content="targetLanguage:pt" data-label="Portuguese">
+  <meta name="agentlet:preference:option" content="targetLanguage:zh" data-label="Chinese">
+  <meta name="agentlet:preference:option" content="targetLanguage:ja" data-label="Japanese">
+
+  <!-- ═══ DISCOVERY ═══ -->
+  <!--
+    Help users find this agent in catalogs/stores.
+    category: primary classification
+    tag: searchable keywords
+  -->
+  <meta name="agentlet:category" content="writing">
+  <meta name="agentlet:tag" content="text">
+  <meta name="agentlet:tag" content="writing">
+  <meta name="agentlet:tag" content="translation">
+  <meta name="agentlet:tag" content="universal">
+</head>
+<body>
+
+<!-- ═══ ICON ═══ -->
+<!--
+  SVG icon referenced by agentlet:icon="#icon"
+  hidden attribute prevents display in browser preview
+-->
+<svg id="icon" viewBox="0 0 24 24" hidden>
+  <rect width="24" height="24" rx="4" fill="#8b5cf6"/>
+  <path d="M7 8h10M7 12h7M7 16h10" stroke="white" stroke-width="2" stroke-linecap="round"/>
+</svg>
+
+<!-- ═══ BROWSER PREVIEW ═══ -->
+<!--
+  When opened directly in a browser (not in a host), show documentation.
+  <noscript> ensures it only shows when JS is disabled.
+-->
+<noscript>
+<style>
+  body { font-family: system-ui; max-width: 600px; margin: 2rem auto; padding: 1rem; }
+  h1 { display: flex; align-items: center; gap: 0.5rem; }
+  h1 svg { width: 32px; height: 32px; }
+  .badge { background: #8b5cf6; color: white; padding: 0.125rem 0.5rem; border-radius: 999px; font-size: 0.75rem; }
+  .type { background: #10b981; color: white; padding: 0.15rem 0.75rem; border-radius: 4px; font-size: 0.875rem; display: inline-block; margin: 0.5rem 0; }
+</style>
+<h1>
+  <svg viewBox="0 0 24 24"><rect width="24" height="24" rx="4" fill="#8b5cf6"/><path d="M7 8h10M7 12h7M7 16h10" stroke="white" stroke-width="2" stroke-linecap="round"/></svg>
+  Text Improver <span class="badge">v1.0.0</span>
+</h1>
+<div class="type">Universal Agent</div>
+<p>Improve, summarize, expand, or translate any text using AI.</p>
+<h3>Actions</h3>
+<ul>
+  <li><strong>Improve</strong> - Enhance clarity and flow</li>
+  <li><strong>Summarize</strong> - Create concise summary</li>
+  <li><strong>Expand</strong> - Add detail and depth</li>
+  <li><strong>Translate</strong> - Translate to another language</li>
+</ul>
+<p><em>This is a universal agent - it works in any host application.</em></p>
+</noscript>
+
+<!-- ═══ AGENT CODE ═══ -->
+<script type="module">
+// Access the bridge object injected by the host
+const { bridge } = window;
+
+// ════════════════════════════════════════════════════════════════════
+// LIFECYCLE HOOKS
+// ════════════════════════════════════════════════════════════════════
+
+// onInstall runs once when agent is first installed (or upgraded)
+// previousVersion is undefined on fresh install, or the old version on upgrade
+bridge.onInstall(async ({ previousVersion }) => {
+  if (!previousVersion) {
+    // Fresh install - show welcome message
+    await bridge.ui.notify("Text Improver installed!", "success");
+  }
+  // Could also run migrations here when previousVersion < some version
+});
+
+// ════════════════════════════════════════════════════════════════════
+// HELPER FUNCTIONS
+// ════════════════════════════════════════════════════════════════════
+
+// Prompt user for input text
+// Returns empty string if cancelled
+async function getText() {
+  return await bridge.ui.prompt("Paste text to process:", "");
+}
+
+// Display results in a rich panel with copy button
+async function showResult(title, result) {
+  await bridge.ui.panel({
+    title,
+    content: `
+      <div style="font-family: system-ui; padding: 1rem;">
+        <div style="white-space: pre-wrap; line-height: 1.6;">${result}</div>
+        <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e5e7eb;">
+          <button onclick="navigator.clipboard.writeText(this.parentElement.previousElementSibling.textContent); this.textContent='Copied!'"
+                  style="padding: 0.5rem 1rem; background: #8b5cf6; color: white; border: none; border-radius: 4px; cursor: pointer;">
+            Copy to Clipboard
+          </button>
+        </div>
+      </div>
+    `,
+    width: 500
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════
+// ACTIONS
+// ════════════════════════════════════════════════════════════════════
+
+// Each action is registered with bridge.action(actionId, handler)
+// The actionId must match the content in the manifest's action meta tag
+
+bridge.action('improve', async () => {
+  // 1. Get input from user
+  const text = await getText();
+  if (!text) return;  // User cancelled
+
+  // 2. Show activity indicator (appears in host's UI)
+  await bridge.activity.start("Improving text");
+
+  // 3. Call LLM with chat-style messages
+  //    - system: Sets the AI's behavior/persona
+  //    - user: The actual request
+  const improved = await bridge.inference({
+    messages: [
+      { role: 'system', content: 'You are a skilled editor. Improve the given text for clarity, flow, and readability. Maintain the original meaning and tone. Return only the improved text.' },
+      { role: 'user', content: text }
+    ],
+    max_tokens: 2000  // Limit response length
+  });
+
+  // 4. Complete activity and show result
+  await bridge.activity.complete("Done");
+  await showResult("Improved Text", improved);
+});
+
+bridge.action('summarize', async () => {
+  const text = await getText();
+  if (!text) return;
+
+  await bridge.activity.start("Summarizing");
+
+  const summary = await bridge.inference({
+    messages: [
+      { role: 'system', content: 'Create a concise summary of the given text. Capture the key points and main ideas. Return only the summary.' },
+      { role: 'user', content: text }
+    ],
+    max_tokens: 500  // Shorter limit for summaries
+  });
+
+  await bridge.activity.complete("Done");
+  await showResult("Summary", summary);
+});
+
+bridge.action('expand', async () => {
+  const text = await getText();
+  if (!text) return;
+
+  await bridge.activity.start("Expanding text");
+
+  const expanded = await bridge.inference({
+    messages: [
+      { role: 'system', content: 'Expand the given text with more detail, examples, and depth. Maintain the original style and voice. Return only the expanded text.' },
+      { role: 'user', content: text }
+    ],
+    max_tokens: 3000  // Longer limit for expanded text
+  });
+
+  await bridge.activity.complete("Done");
+  await showResult("Expanded Text", expanded);
+});
+
+bridge.action('translate', async () => {
+  const text = await getText();
+  if (!text) return;
+
+  // Get user preferences (persisted settings)
+  const prefs = await bridge.preferences.get();
+
+  const languages = {
+    es: 'Spanish',
+    fr: 'French',
+    de: 'German',
+    pt: 'Portuguese',
+    zh: 'Chinese',
+    ja: 'Japanese'
+  };
+
+  // Let user choose language with a selection dialog
+  const selected = await bridge.ui.select({
+    title: "Select target language",
+    items: Object.entries(languages).map(([code, name]) => ({
+      id: code,
+      label: name
+    })),
+    multiple: false  // Single selection
+  });
+
+  // Use selected language, or fall back to preference default
+  const targetLang = selected || prefs.targetLanguage;
+  const targetName = languages[targetLang] || 'Spanish';
+
+  await bridge.activity.start(`Translating to ${targetName}`);
+
+  const translated = await bridge.inference({
+    messages: [
+      { role: 'system', content: `Translate the given text to ${targetName}. Maintain the original meaning and tone. Return only the translation.` },
+      { role: 'user', content: text }
+    ],
+    max_tokens: 2000
+  });
+
+  await bridge.activity.complete("Done");
+  await showResult(`Translation (${targetName})`, translated);
+});
+</script>
+
+</body>
+</html>

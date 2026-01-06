@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<!--
+  LINK SUGGESTER - Adaptive Agent Example
+
+  Demonstrates: Semantic similarity across hosts
+  - Works in VS Code (file refs) and Obsidian (note links)
+  - Perceive for current context + related items
+  - Optional act for inserting links
+  - AI-powered content similarity matching
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Link Suggester</title>
+
+  <meta name="agentlet" content="0.1">
+  <meta name="agentlet:name" content="link-suggester">
+  <meta name="agentlet:version" content="1.0.0">
+  <meta name="agentlet:description" content="Suggests related files or notes based on content similarity">
+  <meta name="agentlet:author" content="Agentlet Project">
+  <meta name="agentlet:license" content="MIT">
+
+  <!-- Adaptive: works across different hosts -->
+  <meta name="agentlet:portability" content="adaptive">
+
+  <!-- Required capabilities -->
+  <meta name="agentlet:requires" content="perceive">
+  <meta name="agentlet:requires" content="inference:basic">
+  <meta name="agentlet:requires" content="ui:panel">
+
+  <!-- Optional capabilities -->
+  <meta name="agentlet:optional" content="act">
+  <meta name="agentlet:optional" content="storage">
+  <meta name="agentlet:optional" content="ui:notify">
+
+  <!-- Intents -->
+  <meta name="agentlet:intent" content="search">
+  <meta name="agentlet:intent" content="insert-link">
+
+  <!-- Actions -->
+  <meta name="agentlet:action" content="find-related" data-label="Find Related">
+  <meta name="agentlet:action" content="suggest-links" data-label="Suggest Links">
+  <meta name="agentlet:action" content="build-index" data-label="Build Connection Index">
+
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 1rem;
+    }
+    .suggestion-list {
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .suggestion-item {
+      padding: 0.75rem;
+      margin-bottom: 0.5rem;
+      background: #f8fafc;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .suggestion-item:hover {
+      background: #e2e8f0;
+    }
+    .suggestion-title {
+      font-weight: 600;
+      color: #1e293b;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .suggestion-reason {
+      font-size: 0.875rem;
+      color: #64748b;
+      margin-top: 0.25rem;
+    }
+    .relevance-badge {
+      font-size: 0.7rem;
+      padding: 0.125rem 0.5rem;
+      border-radius: 999px;
+      font-weight: 500;
+    }
+    .relevance-high { background: #dcfce7; color: #166534; }
+    .relevance-medium { background: #fef9c3; color: #854d0e; }
+    .relevance-low { background: #f3f4f6; color: #6b7280; }
+    .current-file {
+      background: #eff6ff;
+      padding: 0.75rem;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+      border-left: 3px solid #3b82f6;
+    }
+    .action-btn {
+      padding: 0.25rem 0.5rem;
+      background: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      margin-left: auto;
+    }
+  </style>
+</head>
+<body>
+
+<noscript>
+  <h1>Link Suggester</h1>
+  <p>Finds related files/notes and suggests connections.</p>
+</noscript>
+
+<script type="module">
+const { bridge } = window;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CORE LOGIC
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function findRelatedItems() {
+  // Get current selection/file
+  const context = await bridge.perceive({
+    scope: 'selection',
+    understand: true
+  });
+
+  if (!context.items || context.items.length === 0) {
+    await bridge.ui.notify?.('Select a file or note first', 'warning');
+    return;
+  }
+
+  await bridge.activity.start('Finding related items...');
+
+  const currentItem = context.items[0];
+  const currentContent = extractContent(currentItem);
+  const currentTitle = extractTitle(currentItem);
+
+  await bridge.activity.log(`Analyzing: ${currentTitle}`);
+
+  // Get workspace items to compare
+  let workspaceItems = [];
+  try {
+    const workspace = await bridge.perceive({
+      scope: 'workspace',
+      understand: false // Just get raw items
+    });
+    workspaceItems = workspace.items || [];
+  } catch {
+    // Fall back to search if workspace perceive not available
+    try {
+      const searchResult = await bridge.act({
+        intent: 'search',
+        query: extractKeywords(currentContent).slice(0, 3).join(' ')
+      });
+      workspaceItems = searchResult.result || [];
+    } catch {
+      await bridge.activity.error('Cannot access workspace items');
+      return;
+    }
+  }
+
+  await bridge.activity.log(`Comparing against ${workspaceItems.length} items`);
+
+  // Use AI to find connections
+  const analysis = await bridge.inference({
+    messages: [
+      {
+        role: 'system',
+        content: `You are finding conceptual connections between files/notes.
+
+Given a source item and a list of potential matches, identify the most related items.
+
+For each related item, provide:
+- title: the item's title or filename
+- relevance: "high", "medium", or "low"
+- reason: brief explanation of the connection (shared concepts, references, etc.)
+
+Return JSON: { "related": [{ "title": "...", "id": "...", "relevance": "...", "reason": "..." }] }
+Limit to top 10 most relevant matches.`
+      },
+      {
+        role: 'user',
+        content: `Source item:
+Title: ${currentTitle}
+Content: ${currentContent.slice(0, 2000)}
+
+Items to compare:
+${JSON.stringify(workspaceItems.slice(0, 50).map(i => ({
+  id: i.id,
+  title: extractTitle(i),
+  preview: extractContent(i).slice(0, 200)
+})), null, 2)}`
+      }
+    ]
+  });
+
+  let related;
+  try {
+    const parsed = JSON.parse(analysis);
+    related = parsed.related || [];
+  } catch {
+    related = [];
+  }
+
+  // Filter out current item
+  related = related.filter(r =>
+    r.title !== currentTitle &&
+    r.id !== currentItem.id
+  );
+
+  await bridge.activity.complete(`Found ${related.length} related items`);
+
+  // Show results
+  await showRelatedItems(currentTitle, related);
+}
+
+async function suggestLinks() {
+  const context = await bridge.perceive({
+    scope: 'selection',
+    understand: true
+  });
+
+  if (!context.items || context.items.length === 0) {
+    await bridge.ui.notify?.('Select content first', 'warning');
+    return;
+  }
+
+  await bridge.activity.start('Analyzing for link opportunities...');
+
+  const currentItem = context.items[0];
+  const content = extractContent(currentItem);
+
+  // Find existing items that could be linked
+  let workspaceItems = [];
+  try {
+    const workspace = await bridge.perceive({ scope: 'workspace' });
+    workspaceItems = workspace.items || [];
+  } catch {
+    await bridge.activity.error('Cannot access workspace');
+    return;
+  }
+
+  // AI identifies linking opportunities
+  const analysis = await bridge.inference({
+    messages: [
+      {
+        role: 'system',
+        content: `You are identifying opportunities to add links/references in a document.
+
+Find mentions of concepts, terms, or topics that match other files/notes in the workspace.
+
+For each opportunity:
+- phrase: the text that could become a link
+- target: which item it should link to
+- reason: why this link would be valuable
+
+Return JSON: { "opportunities": [{ "phrase": "...", "targetTitle": "...", "reason": "..." }] }`
+      },
+      {
+        role: 'user',
+        content: `Document content:
+${content.slice(0, 3000)}
+
+Available items to link to:
+${workspaceItems.slice(0, 30).map(i => extractTitle(i)).join('\n')}`
+      }
+    ]
+  });
+
+  let opportunities;
+  try {
+    const parsed = JSON.parse(analysis);
+    opportunities = parsed.opportunities || [];
+  } catch {
+    opportunities = [];
+  }
+
+  await bridge.activity.complete(`Found ${opportunities.length} link opportunities`);
+
+  await showLinkOpportunities(opportunities, currentItem);
+}
+
+async function buildConnectionIndex() {
+  await bridge.activity.start('Building connection index...');
+
+  const workspace = await bridge.perceive({
+    scope: 'workspace',
+    understand: true
+  });
+
+  const items = workspace.items || [];
+
+  if (items.length < 2) {
+    await bridge.ui.notify?.('Need at least 2 items to build index', 'warning');
+    return;
+  }
+
+  await bridge.activity.log(`Indexing ${items.length} items...`);
+
+  // Build pairwise connections using AI
+  const analysis = await bridge.inference({
+    messages: [
+      {
+        role: 'system',
+        content: `Analyze all items and identify the strongest connections between them.
+
+Create a connection graph showing which items are related.
+
+Return JSON: {
+  "connections": [
+    { "from": "title1", "to": "title2", "strength": "strong|medium|weak", "type": "references|similar-topic|continuation|etc" }
+  ],
+  "clusters": [
+    { "name": "cluster name", "items": ["title1", "title2"] }
+  ]
+}`
+      },
+      {
+        role: 'user',
+        content: JSON.stringify(items.slice(0, 40).map(i => ({
+          title: extractTitle(i),
+          preview: extractContent(i).slice(0, 300)
+        })), null, 2)
+      }
+    ]
+  });
+
+  let graph;
+  try {
+    graph = JSON.parse(analysis);
+  } catch {
+    graph = { connections: [], clusters: [] };
+  }
+
+  // Save to storage
+  await bridge.storage.set('connectionIndex', {
+    graph,
+    itemCount: items.length,
+    builtAt: new Date().toISOString()
+  });
+
+  await bridge.activity.complete('Index built');
+
+  await bridge.ui.panel({
+    title: 'Connection Index',
+    content: `
+      <p style="margin-bottom: 1rem;">
+        Indexed <strong>${items.length}</strong> items with
+        <strong>${graph.connections.length}</strong> connections in
+        <strong>${graph.clusters?.length || 0}</strong> clusters.
+      </p>
+
+      ${graph.clusters?.length > 0 ? `
+        <h4>Clusters</h4>
+        ${graph.clusters.map(c => `
+          <div style="background: #f1f5f9; padding: 0.5rem; border-radius: 4px; margin-bottom: 0.5rem;">
+            <strong>${c.name}</strong>: ${c.items.join(', ')}
+          </div>
+        `).join('')}
+      ` : ''}
+
+      ${graph.connections?.length > 0 ? `
+        <h4 style="margin-top: 1rem;">Strong Connections</h4>
+        ${graph.connections.filter(c => c.strength === 'strong').slice(0, 10).map(c => `
+          <div style="font-size: 0.875rem; padding: 0.25rem 0;">
+            ${c.from} ↔ ${c.to} <span style="color: #64748b;">(${c.type})</span>
+          </div>
+        `).join('')}
+      ` : ''}
+    `,
+    width: 450
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UI HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function showRelatedItems(currentTitle, related) {
+  await bridge.ui.panel({
+    title: 'Related Items',
+    content: `
+      <div class="current-file">
+        <strong>Current:</strong> ${escapeHtml(currentTitle)}
+      </div>
+
+      <div class="suggestion-list">
+        ${related.length === 0 ? '<p style="color: #64748b;">No related items found.</p>' : ''}
+
+        ${related.map(item => `
+          <div class="suggestion-item" data-id="${item.id}">
+            <div class="suggestion-title">
+              <span>${escapeHtml(item.title)}</span>
+              <span class="relevance-badge relevance-${item.relevance}">${item.relevance}</span>
+            </div>
+            <div class="suggestion-reason">${escapeHtml(item.reason)}</div>
+          </div>
+        `).join('')}
+      </div>
+    `,
+    width: 400
+  });
+}
+
+async function showLinkOpportunities(opportunities, currentItem) {
+  const result = await bridge.ui.confirm({
+    title: 'Link Opportunities',
+    content: `
+      <p style="margin-bottom: 1rem; color: #64748b;">
+        Found ${opportunities.length} phrases that could link to other items.
+      </p>
+
+      <div class="suggestion-list">
+        ${opportunities.map((opp, idx) => `
+          <div class="suggestion-item">
+            <div class="suggestion-title">
+              "${escapeHtml(opp.phrase)}"
+              <span style="color: #3b82f6;">→</span>
+              ${escapeHtml(opp.targetTitle)}
+            </div>
+            <div class="suggestion-reason">${escapeHtml(opp.reason)}</div>
+          </div>
+        `).join('')}
+      </div>
+    `,
+    buttons: ['Insert All Links', 'Close'],
+    width: 450
+  });
+
+  if (result === 'Insert All Links' && opportunities.length > 0) {
+    try {
+      for (const opp of opportunities) {
+        await bridge.act({
+          intent: 'insert-link',
+          item: currentItem.id,
+          phrase: opp.phrase,
+          target: opp.targetTitle
+        });
+      }
+      await bridge.ui.notify?.(`Inserted ${opportunities.length} links`, 'success');
+    } catch (e) {
+      await bridge.ui.notify?.(`Could not insert links: ${e.message}`, 'error');
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════════════════════════════
+
+function extractContent(item) {
+  if (typeof item === 'string') return item;
+  return item.content || item.text || item.body || '';
+}
+
+function extractTitle(item) {
+  if (typeof item === 'string') return item.slice(0, 50);
+  return item.title || item.name || item.basename || item.path || 'Untitled';
+}
+
+function extractKeywords(content) {
+  // Simple keyword extraction
+  const words = content.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 4);
+
+  // Count frequency
+  const counts = {};
+  words.forEach(w => counts[w] = (counts[w] || 0) + 1);
+
+  // Sort by frequency
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([word]) => word);
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ACTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+bridge.action('find-related', async () => {
+  await findRelatedItems();
+});
+
+bridge.action('suggest-links', async () => {
+  await suggestLinks();
+});
+
+bridge.action('build-index', async () => {
+  await buildConnectionIndex();
+});
+</script>
+
+</body>
+</html>

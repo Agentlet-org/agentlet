@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!--
+  HELLO WORLD - Minimal Agentlet Example
+
+  Demonstrates: The bare minimum needed for a working agent
+  - Required manifest fields (spec version, name, version)
+  - Single capability declaration
+  - Single action with handler
+-->
+<title>Hello World</title>
+<meta name="agentlet" content="0.1">
+<meta name="agentlet:name" content="hello-world">
+<meta name="agentlet:version" content="1.0.0">
+<meta name="agentlet:description" content="Minimal example showing the simplest possible agent">
+<meta name="agentlet:portability" content="universal">
+<meta name="agentlet:capability" content="ui:notify">
+<meta name="agentlet:action" content="greet" data-label="Say Hello">
+
+<script type="module">
+bridge.action('greet', async () => {
+  await bridge.ui.notify("Hello from Agentlet!", "success");
+});
+</script>

@@ -1,0 +1,211 @@
+/* Agentlet Plugin Styles */
+
+/* Agent Manager View */
+.agentlet-view {
+  padding: 10px;
+}
+
+.agentlet-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.agentlet-header h4 {
+  margin: 0;
+  font-weight: 600;
+}
+
+.agentlet-empty {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-muted);
+}
+
+.agentlet-empty p {
+  margin: 8px 0;
+}
+
+.agentlet-hint {
+  font-size: 0.85em;
+  opacity: 0.8;
+}
+
+.agentlet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.agentlet-item {
+  background: var(--background-secondary);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.agentlet-info {
+  margin-bottom: 10px;
+}
+
+.agentlet-name {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.agentlet-description {
+  display: block;
+  font-size: 0.9em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.agentlet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agentlet-actions button {
+  font-size: 0.85em;
+}
+
+/* Portability badges */
+.agentlet-badge {
+  display: inline-block;
+  font-size: 0.75em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-top: 4px;
+}
+
+.agentlet-badge-adaptive {
+  background: var(--color-green);
+  color: var(--text-on-accent);
+}
+
+.agentlet-badge-universal {
+  background: var(--color-blue);
+  color: var(--text-on-accent);
+}
+
+.agentlet-badge-host-family {
+  background: var(--color-orange);
+  color: var(--text-on-accent);
+}
+
+.agentlet-badge-host-specific {
+  background: var(--color-purple);
+  color: var(--text-on-accent);
+}
+
+/* Source Code Modal */
+.agentlet-source-modal {
+  max-width: 800px;
+}
+
+.agentlet-source-header {
+  margin-bottom: 16px;
+}
+
+.agentlet-source-header h3 {
+  margin: 0 0 8px 0;
+}
+
+.agentlet-source-meta {
+  font-size: 0.9em;
+  color: var(--text-muted);
+}
+
+.agentlet-source-url {
+  color: var(--text-accent);
+  text-decoration: none;
+}
+
+.agentlet-source-url:hover {
+  text-decoration: underline;
+}
+
+.agentlet-source-permissions {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+}
+
+.agentlet-source-permissions h4 {
+  margin: 0 0 8px 0;
+  font-size: 0.9em;
+  font-weight: 600;
+}
+
+.agentlet-source-permissions ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.agentlet-source-permissions li {
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+
+.agentlet-source-code {
+  margin-top: 16px;
+}
+
+.agentlet-source-code h4 {
+  margin: 0 0 8px 0;
+  font-size: 0.9em;
+  font-weight: 600;
+}
+
+.agentlet-source-code pre {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.agentlet-source-code code {
+  font-family: var(--font-monospace);
+  font-size: 0.85em;
+  white-space: pre;
+}
+
+/* Activity Panel */
+.agentlet-activity {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  max-width: 300px;
+}
+
+.agentlet-activity-message {
+  font-size: 0.9em;
+}
+
+.agentlet-activity-progress {
+  margin-top: 8px;
+  height: 4px;
+  background: var(--background-modifier-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.agentlet-activity-progress-bar {
+  height: 100%;
+  background: var(--interactive-accent);
+  transition: width 0.3s ease;
+}

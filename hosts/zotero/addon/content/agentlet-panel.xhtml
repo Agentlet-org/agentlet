@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="chrome://global/skin/" type="text/css"?>
+<?xml-stylesheet href="chrome://zotero/skin/zotero.css" type="text/css"?>
+<!DOCTYPE window>
+<window
+  xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+  xmlns:html="http://www.w3.org/1999/xhtml"
+  title="Agentlet Panel"
+  width="400"
+  height="500"
+  persist="width,height,screenX,screenY">
+
+  <script src="chrome://zotero/content/include.js"/>
+  <script type="application/javascript">
+  <![CDATA[
+    // Panel state
+    let panelId = null;
+    let panelConfig = null;
+    let messageCallback = null;
+
+    // Initialize panel with config passed via window.arguments
+    function init() {
+      if (window.arguments && window.arguments[0]) {
+        panelConfig = window.arguments[0];
+        panelId = panelConfig.id;
+
+        // Set window title
+        document.title = panelConfig.title || 'Agentlet Panel';
+
+        // Set dimensions
+        if (panelConfig.width) {
+          window.resizeTo(panelConfig.width, panelConfig.height || 500);
+        }
+
+        // Store callback for messages
+        messageCallback = panelConfig.onMessage;
+
+        // Render initial content
+        if (panelConfig.content) {
+          renderContent(panelConfig.content);
+        }
+      }
+
+      // Listen for updates from the host
+      window.addEventListener('agentlet-panel-update', (e) => {
+        if (e.detail.content) {
+          renderContent(e.detail.content);
+        }
+        if (e.detail.title) {
+          document.title = e.detail.title;
+        }
+      });
+
+      // Listen for messages from iframe
+      window.addEventListener('message', handleIframeMessage);
+    }
+
+    // Render HTML content using srcdoc iframe
+    function renderContent(html) {
+      const container = document.getElementById('panel-content');
+
+      // Remove existing iframe if any
+      const existingIframe = document.getElementById('panel-iframe');
+      if (existingIframe) {
+        existingIframe.remove();
+      }
+
+      // Create iframe element
+      const iframe = document.createElementNS('http://www.w3.org/1999/xhtml', 'iframe');
+      iframe.id = 'panel-iframe';
+      iframe.style.cssText = 'width: 100%; height: 100%; border: none; background: white;';
+
+      // Build complete HTML document with message forwarding
+      const fullHtml = '<!DOCTYPE html>' +
+        '<html><head><meta charset="utf-8">' +
+        '<style>*{box-sizing:border-box}body{margin:0;padding:0;font-family:system-ui,-apple-system,sans-serif}</style>' +
+        '</head><body>' + html +
+        '<script>' +
+        'document.body.addEventListener("click",function(e){' +
+        'var t=e.target.closest("[onclick]");' +
+        'if(t){' +
+        'var oc=t.getAttribute("onclick");' +
+        'if(oc&&oc.indexOf("postMessage")>-1){' +
+        'e.preventDefault();' +
+        'var m=oc.match(/postMessage\\s*\\(\\s*(\\{[^}]+\\})/);' +
+        'if(m){try{var msg=Function("return "+m[1])();window.parent.postMessage(msg,"*");}catch(err){}}' +
+        '}}});' +
+        '</script></body></html>';
+
+      // Use srcdoc to set content (avoids contentDocument security issues)
+      iframe.setAttribute('srcdoc', fullHtml);
+
+      container.appendChild(iframe);
+    }
+
+    // Handle messages from the iframe content
+    function handleIframeMessage(event) {
+      const msg = event.data;
+      if (!msg || typeof msg !== 'object') return;
+
+      Zotero.debug('[AgentletPanel] Received message: ' + JSON.stringify(msg));
+
+      // Special handling for close
+      if (msg.type === 'close') {
+        window.close();
+        return;
+      }
+
+      // Forward to callback
+      if (messageCallback && typeof messageCallback === 'function') {
+        try {
+          messageCallback(msg);
+        } catch (e) {
+          Zotero.debug('[AgentletPanel] Callback error: ' + e.message);
+        }
+      }
+    }
+
+    // Close handler
+    function onClose() {
+      if (messageCallback) {
+        messageCallback({ type: 'panel-closed', panelId });
+      }
+      return true;
+    }
+
+    window.addEventListener('load', init);
+    window.addEventListener('beforeunload', onClose);
+  ]]>
+  </script>
+
+  <html:div id="panel-container" style="display: flex; flex-direction: column; height: 100%; width: 100%; background: white;">
+    <html:div id="panel-content" style="flex: 1; overflow: auto; width: 100%; height: 100%;">
+      <!-- Content rendered by JavaScript -->
+    </html:div>
+  </html:div>
+
+</window>

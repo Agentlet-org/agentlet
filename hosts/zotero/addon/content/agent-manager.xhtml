@@ -1,0 +1,535 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="chrome://global/skin/" type="text/css"?>
+<?xml-stylesheet href="chrome://zotero/skin/zotero.css" type="text/css"?>
+<?xml-stylesheet href="chrome://zotagentlet/content/styles/agent-manager.css" type="text/css"?>
+<!DOCTYPE window>
+<window
+  xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+  xmlns:html="http://www.w3.org/1999/xhtml"
+  title="Manage Agentlets"
+  width="500"
+  height="450"
+  persist="width,height,screenX,screenY">
+
+  <script src="chrome://zotero/content/include.js"/>
+  <script type="application/javascript">
+  <![CDATA[
+    // State
+    let agents = [];
+    let expandedAgents = new Set();
+    let selectedItem = null; // { type: 'agent' | 'action', agentId, actionId? }
+    let runningActions = new Map(); // agentId:actionId -> { startTime, logs }
+    let activityLogs = [];
+    let searchQuery = '';
+
+    // Initialize
+    function init() {
+      loadAgents();
+      renderTree();
+      updateFooter();
+    }
+
+    function loadAgents() {
+      agents = Zotero.ZotAgentlet?.api?.listAgents() || [];
+      // Expand all by default for first load
+      if (expandedAgents.size === 0) {
+        agents.forEach(a => expandedAgents.add(a.id));
+      }
+    }
+
+    // Render the agent tree
+    function renderTree() {
+      const container = document.getElementById('agent-tree');
+      container.innerHTML = '';
+
+      const filteredAgents = filterAgents(agents, searchQuery);
+
+      if (filteredAgents.length === 0) {
+        container.innerHTML = `
+          <div class="agent-tree-empty">
+            ${searchQuery ? 'No agents match your search' : 'No agents installed.<br/>Click + to install an agent.'}
+          </div>
+        `;
+        return;
+      }
+
+      for (const agent of filteredAgents) {
+        renderAgentNode(container, agent);
+      }
+    }
+
+    function filterAgents(agents, query) {
+      if (!query) return agents;
+      const q = query.toLowerCase();
+      return agents.filter(agent => {
+        const nameMatch = agent.manifest.name?.toLowerCase().includes(q);
+        const descMatch = agent.manifest.description?.toLowerCase().includes(q);
+        const actionMatch = Object.values(agent.manifest.actions || {}).some(
+          action => action.label?.toLowerCase().includes(q)
+        );
+        return nameMatch || descMatch || actionMatch;
+      });
+    }
+
+    function renderAgentNode(container, agent) {
+      const isExpanded = expandedAgents.has(agent.id);
+      const isEnabled = agent.enabled !== false;
+      const actions = Object.entries(agent.manifest.actions || {});
+      const hasActions = actions.length > 0;
+      const defaultAction = agent.extractedManifest?.defaultAction || agent.manifest.defaultAction;
+
+      // Agent row
+      const agentRow = document.createElement('div');
+      agentRow.className = 'agent-row';
+      if (selectedItem?.type === 'agent' && selectedItem.agentId === agent.id) {
+        agentRow.classList.add('selected');
+      }
+      agentRow.dataset.agentId = agent.id;
+
+      // Toggle icon
+      const toggle = document.createElement('span');
+      toggle.className = `agent-toggle ${isExpanded ? 'expanded' : ''} ${!hasActions ? 'no-children' : ''}`;
+      toggle.textContent = '▶';
+      toggle.onclick = (e) => {
+        e.stopPropagation();
+        toggleAgent(agent.id);
+      };
+
+      // Enable toggle
+      const enableToggle = document.createElement('span');
+      enableToggle.className = `agent-enable-toggle ${isEnabled ? 'enabled' : 'disabled'}`;
+      enableToggle.textContent = isEnabled ? '✓' : '○';
+      enableToggle.title = isEnabled ? 'Enabled' : 'Disabled';
+      enableToggle.onclick = (e) => {
+        e.stopPropagation();
+        toggleAgentEnabled(agent.id);
+      };
+
+      // Name
+      const name = document.createElement('span');
+      name.className = 'agent-name';
+      name.textContent = agent.manifest.name || agent.id;
+
+      // Version
+      const version = document.createElement('span');
+      version.className = 'agent-version';
+      version.textContent = `v${agent.manifest.version || '?'}`;
+
+      agentRow.appendChild(toggle);
+      agentRow.appendChild(enableToggle);
+      agentRow.appendChild(name);
+      agentRow.appendChild(version);
+
+      agentRow.onclick = () => selectItem('agent', agent.id);
+      agentRow.ondblclick = () => {
+        if (defaultAction) {
+          runAction(agent.id, defaultAction);
+        } else if (actions.length > 0) {
+          runAction(agent.id, actions[0][0]);
+        }
+      };
+      agentRow.oncontextmenu = (e) => showAgentContextMenu(e, agent);
+
+      container.appendChild(agentRow);
+
+      // Actions (if expanded)
+      if (isExpanded && hasActions) {
+        actions.forEach(([actionId, action], index) => {
+          const isLast = index === actions.length - 1;
+          const isDefault = actionId === defaultAction;
+          const requiresConfirm = action.confirm === true;
+          const isRunning = runningActions.has(`${agent.id}:${actionId}`);
+          const isActionSelected = selectedItem?.type === 'action' &&
+                                   selectedItem.agentId === agent.id &&
+                                   selectedItem.actionId === actionId;
+
+          const actionRow = document.createElement('div');
+          actionRow.className = `action-row ${isRunning ? 'running' : ''} ${isActionSelected ? 'selected' : ''}`;
+          actionRow.dataset.agentId = agent.id;
+          actionRow.dataset.actionId = actionId;
+
+          // Tree connector
+          const connector = document.createElement('span');
+          connector.className = 'tree-connector';
+          connector.textContent = isLast ? '└──' : '├──';
+
+          // Action icon (clickable run button)
+          const icon = document.createElement('span');
+          icon.className = `action-icon ${isRunning ? 'running' : ''}`;
+          icon.textContent = isRunning ? '◉' : '▶';
+          icon.title = isRunning ? 'Running...' : 'Click to run';
+          if (!isRunning) {
+            icon.onclick = (e) => {
+              e.stopPropagation();
+              runAction(agent.id, actionId);
+            };
+          }
+
+          // Action name
+          const actionName = document.createElement('span');
+          actionName.className = 'action-name';
+          actionName.textContent = action.label || actionId;
+
+          actionRow.appendChild(connector);
+          actionRow.appendChild(icon);
+          actionRow.appendChild(actionName);
+
+          // Indicators
+          if (isDefault) {
+            const star = document.createElement('span');
+            star.className = 'action-indicator default';
+            star.textContent = '★';
+            star.title = 'Default action';
+            actionRow.appendChild(star);
+          }
+
+          if (requiresConfirm) {
+            const warn = document.createElement('span');
+            warn.className = 'action-indicator confirm';
+            warn.textContent = '⚠';
+            warn.title = 'Requires confirmation';
+            actionRow.appendChild(warn);
+          }
+
+          if (isRunning) {
+            const runningText = document.createElement('span');
+            runningText.className = 'action-indicator running-text';
+            runningText.textContent = '⟳ Running';
+            actionRow.appendChild(runningText);
+          }
+
+          actionRow.onclick = () => selectItem('action', agent.id, actionId);
+          actionRow.ondblclick = () => runAction(agent.id, actionId);
+
+          container.appendChild(actionRow);
+        });
+      }
+    }
+
+    // Toggle agent expansion
+    function toggleAgent(agentId) {
+      if (expandedAgents.has(agentId)) {
+        expandedAgents.delete(agentId);
+      } else {
+        expandedAgents.add(agentId);
+      }
+      renderTree();
+    }
+
+    // Toggle agent enabled state
+    function toggleAgentEnabled(agentId) {
+      const agent = agents.find(a => a.id === agentId);
+      if (!agent) return;
+      agent.enabled = agent.enabled === false ? true : false;
+      // TODO: Persist enabled state
+      renderTree();
+    }
+
+    // Select an item
+    function selectItem(type, agentId, actionId = null) {
+      selectedItem = { type, agentId, actionId };
+      renderTree();
+      updateFooter();
+    }
+
+    // Run an action
+    async function runAction(agentId, actionId) {
+      const agent = agents.find(a => a.id === agentId);
+      if (!agent) return;
+
+      const action = agent.manifest.actions?.[actionId];
+      if (!action) return;
+
+      // Confirm if needed
+      if (action.confirm) {
+        const confirmed = confirm(`Run "${action.label || actionId}"?\n\n${action.description || ''}`);
+        if (!confirmed) return;
+      }
+
+      const runKey = `${agentId}:${actionId}`;
+      runningActions.set(runKey, { startTime: Date.now() });
+      activityLogs = [];
+      showActivityPanel(agent.manifest.name, action.label || actionId);
+      renderTree();
+
+      try {
+        const result = await Zotero.ZotAgentlet.api.runAgent(agentId, actionId);
+        addActivityLog('success', result ? `Completed: ${JSON.stringify(result)}` : 'Completed successfully');
+        // Panel stays open until user clicks Cancel
+      } catch (error) {
+        addActivityLog('error', `Failed: ${error.message}`);
+      } finally {
+        runningActions.delete(runKey);
+        renderTree();
+      }
+    }
+
+    // Activity panel
+    function showActivityPanel(agentName, actionName) {
+      const panel = document.getElementById('activity-panel');
+      panel.classList.remove('hidden');
+
+      const title = document.getElementById('activity-title');
+      title.textContent = `${agentName} - ${actionName}`;
+
+      const message = document.getElementById('activity-message');
+      message.textContent = 'Running...';
+
+      const progressBar = document.getElementById('activity-progress-bar');
+      progressBar.style.width = '0%';
+
+      const progressText = document.getElementById('activity-progress-text');
+      progressText.textContent = '';
+
+      const logContainer = document.getElementById('activity-log');
+      logContainer.innerHTML = '';
+    }
+
+    function hideActivityPanel() {
+      const panel = document.getElementById('activity-panel');
+      panel.classList.add('hidden');
+    }
+
+    function addActivityLog(level, message) {
+      activityLogs.push({ level, message, time: Date.now() });
+      renderActivityLogs();
+    }
+
+    function renderActivityLogs() {
+      const logContainer = document.getElementById('activity-log');
+      logContainer.innerHTML = '';
+
+      for (const log of activityLogs.slice(-10)) {
+        const entry = document.createElement('div');
+        entry.className = 'activity-log-entry';
+
+        const icon = document.createElement('span');
+        icon.className = `activity-log-icon ${log.level}`;
+        icon.textContent = log.level === 'success' ? '✓' :
+                           log.level === 'error' ? '✗' :
+                           log.level === 'warning' ? '⚠' : 'ℹ️';
+
+        const msg = document.createElement('span');
+        msg.className = 'activity-log-message';
+        msg.textContent = log.message;
+
+        entry.appendChild(icon);
+        entry.appendChild(msg);
+        logContainer.appendChild(entry);
+      }
+    }
+
+    function cancelActivity() {
+      // TODO: Implement cancel via AgentRuntime
+      runningActions.clear();
+      hideActivityPanel();
+      renderTree();
+    }
+
+    // Search
+    function onSearch(e) {
+      searchQuery = e.target.value;
+      renderTree();
+    }
+
+    // Install agent
+    async function installAgent() {
+      const url = prompt('Enter agent URL (.agentlet file):', 'http://localhost:8888/my-agent.agentlet');
+      if (!url) return;
+
+      try {
+        const agent = await Zotero.ZotAgentlet.api.installAgent(url);
+        loadAgents();
+        expandedAgents.add(agent.id);
+        renderTree();
+        updateFooter();
+        alert(`Agent "${agent.manifest.name}" installed!`);
+      } catch (error) {
+        alert(`Install failed: ${error.message}`);
+      }
+    }
+
+    // Context menu for agents
+    function showAgentContextMenu(event, agent) {
+      event.preventDefault();
+
+      const menu = document.getElementById('agent-context-menu');
+      menu.agent = agent;
+
+      // Update menu items based on agent state
+      const defaultAction = agent.extractedManifest?.defaultAction || agent.manifest.defaultAction;
+      const runDefaultItem = document.getElementById('menu-run-default');
+      runDefaultItem.disabled = !defaultAction;
+      runDefaultItem.label = defaultAction ? `Run: ${agent.manifest.actions[defaultAction]?.label || defaultAction}` : 'No default action';
+
+      const enableItem = document.getElementById('menu-toggle-enable');
+      enableItem.label = agent.enabled === false ? 'Enable Agent' : 'Disable Agent';
+
+      menu.openPopupAtScreen(event.screenX, event.screenY, true);
+    }
+
+    function menuRunDefault() {
+      const menu = document.getElementById('agent-context-menu');
+      const agent = menu.agent;
+      if (!agent) return;
+
+      const defaultAction = agent.extractedManifest?.defaultAction || agent.manifest.defaultAction;
+      if (defaultAction) {
+        runAction(agent.id, defaultAction);
+      }
+    }
+
+    function menuOpenPreferences() {
+      const menu = document.getElementById('agent-context-menu');
+      const agent = menu.agent;
+      if (!agent) return;
+      // TODO: Open agent preferences dialog
+      alert('Agent preferences not yet implemented');
+    }
+
+    function menuCopyUrl() {
+      const menu = document.getElementById('agent-context-menu');
+      const agent = menu.agent;
+      if (!agent) return;
+
+      navigator.clipboard.writeText(agent.url);
+      Zotero.ZotAgentlet.api.notify('URL copied to clipboard', 'success');
+    }
+
+    function menuToggleEnable() {
+      const menu = document.getElementById('agent-context-menu');
+      const agent = menu.agent;
+      if (!agent) return;
+
+      toggleAgentEnabled(agent.id);
+    }
+
+    async function menuUninstall() {
+      const menu = document.getElementById('agent-context-menu');
+      const agent = menu.agent;
+      if (!agent) return;
+
+      if (!confirm(`Uninstall "${agent.manifest.name}"?\n\nThis will remove the agent and all its data.`)) {
+        return;
+      }
+
+      try {
+        await Zotero.ZotAgentlet.api.uninstallAgent(agent.id);
+        loadAgents();
+        renderTree();
+        updateFooter();
+        alert(`Agent "${agent.manifest.name}" uninstalled.`);
+      } catch (error) {
+        alert(`Uninstall failed: ${error.message}`);
+      }
+    }
+
+    // Settings
+    function openSettings() {
+      // Open ZotAgentlet preferences pane in Zotero settings
+      Zotero.Utilities.Internal.openPreferences('zotagentlet@agentlet.org');
+    }
+
+    // Update footer
+    function updateFooter() {
+      const footer = document.getElementById('footer-text');
+      const count = agents.length;
+      footer.textContent = `${count} agent${count !== 1 ? 's' : ''} installed`;
+
+      // Show/hide run button based on selection
+      const runBtn = document.getElementById('footer-run-btn');
+      if (selectedItem?.type === 'action') {
+        const agent = agents.find(a => a.id === selectedItem.agentId);
+        const action = agent?.manifest.actions?.[selectedItem.actionId];
+        runBtn.textContent = `Run ${action?.label || selectedItem.actionId}`;
+        runBtn.classList.remove('hidden');
+      } else if (selectedItem?.type === 'agent') {
+        const agent = agents.find(a => a.id === selectedItem.agentId);
+        const defaultAction = agent?.extractedManifest?.defaultAction || agent?.manifest.defaultAction;
+        if (defaultAction) {
+          const action = agent?.manifest.actions?.[defaultAction];
+          runBtn.textContent = `Run ${action?.label || defaultAction}`;
+          runBtn.classList.remove('hidden');
+        } else {
+          runBtn.classList.add('hidden');
+        }
+      } else {
+        runBtn.classList.add('hidden');
+      }
+    }
+
+    // Run from footer button
+    function runSelectedAction() {
+      if (!selectedItem) return;
+
+      if (selectedItem.type === 'action') {
+        runAction(selectedItem.agentId, selectedItem.actionId);
+      } else if (selectedItem.type === 'agent') {
+        const agent = agents.find(a => a.id === selectedItem.agentId);
+        const defaultAction = agent?.extractedManifest?.defaultAction || agent?.manifest.defaultAction;
+        if (defaultAction) {
+          runAction(selectedItem.agentId, defaultAction);
+        }
+      }
+    }
+
+    window.addEventListener('load', init);
+  ]]>
+  </script>
+
+  <!-- Context Menu -->
+  <popupset>
+    <menupopup id="agent-context-menu">
+      <menuitem id="menu-run-default" label="Run Default Action" oncommand="menuRunDefault()"/>
+      <menuseparator/>
+      <menuitem label="Preferences..." oncommand="menuOpenPreferences()"/>
+      <menuitem label="Copy Install URL" oncommand="menuCopyUrl()"/>
+      <menuseparator/>
+      <menuitem id="menu-toggle-enable" label="Disable Agent" oncommand="menuToggleEnable()"/>
+      <menuitem label="Uninstall..." oncommand="menuUninstall()" style="color: #d32f2f;"/>
+    </menupopup>
+  </popupset>
+
+  <html:div class="agent-manager-container">
+    <!-- Header -->
+    <html:div class="agent-manager-header">
+      <html:span class="agent-manager-title">Manage Agentlets</html:span>
+      <html:button class="header-button" onclick="installAgent()" title="Install Agent">+</html:button>
+      <html:button class="header-button" onclick="openSettings()" title="Settings">⚙</html:button>
+    </html:div>
+
+    <!-- Search -->
+    <html:div class="agent-search-container">
+      <html:input type="text" class="agent-search-input" placeholder="Search agents..." oninput="onSearch(event)"/>
+    </html:div>
+
+    <!-- Agent Tree -->
+    <html:div id="agent-tree" class="agent-tree-container">
+      <!-- Tree nodes rendered by JavaScript -->
+    </html:div>
+
+    <!-- Activity Panel (hidden by default) -->
+    <html:div id="activity-panel" class="activity-panel hidden">
+      <html:div class="activity-header">
+        <html:span id="activity-title" class="activity-title">Activity</html:span>
+        <html:button class="activity-cancel-btn" onclick="cancelActivity()">Cancel</html:button>
+      </html:div>
+      <html:div class="activity-body">
+        <html:div id="activity-message" class="activity-message"></html:div>
+        <html:div class="activity-progress">
+          <html:div id="activity-progress-bar" class="activity-progress-bar"></html:div>
+        </html:div>
+        <html:div id="activity-progress-text" class="activity-progress-text"></html:div>
+        <html:div id="activity-log" class="activity-log"></html:div>
+      </html:div>
+    </html:div>
+
+    <!-- Footer -->
+    <html:div class="agent-manager-footer">
+      <html:span id="footer-text">0 agents installed</html:span>
+      <html:span style="flex: 1;"></html:span>
+      <html:button id="footer-run-btn" class="footer-run-btn hidden" onclick="runSelectedAction()">Run</html:button>
+    </html:div>
+  </html:div>
+
+</window>

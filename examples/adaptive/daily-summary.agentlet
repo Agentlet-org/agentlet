@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<!--
+  DAILY SUMMARY - Adaptive Agent Example
+
+  Demonstrates: Activity aggregation and reporting
+  - Perceive with temporal scope (recent items)
+  - Optional git context for commit history
+  - Storage for tracking work over time
+  - Scheduled trigger pattern (could run daily)
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Daily Summary</title>
+
+  <meta name="agentlet" content="0.1">
+  <meta name="agentlet:name" content="daily-summary">
+  <meta name="agentlet:version" content="1.0.0">
+  <meta name="agentlet:description" content="Generates a summary of your recent work and activity">
+  <meta name="agentlet:author" content="Agentlet Project">
+  <meta name="agentlet:license" content="MIT">
+
+  <!-- Adaptive: works in any host -->
+  <meta name="agentlet:portability" content="adaptive">
+
+  <!-- Required capabilities -->
+  <meta name="agentlet:requires" content="perceive">
+  <meta name="agentlet:requires" content="inference:basic">
+  <meta name="agentlet:requires" content="storage">
+  <meta name="agentlet:requires" content="ui:panel">
+
+  <!-- Optional capabilities -->
+  <meta name="agentlet:optional" content="context:git:read">
+  <meta name="agentlet:optional" content="ui:notify">
+  <meta name="agentlet:optional" content="act">
+
+  <!-- Intents -->
+  <meta name="agentlet:intent" content="create-file">
+
+  <!-- Actions -->
+  <meta name="agentlet:action" content="summarize-today" data-label="Today's Summary">
+  <meta name="agentlet:action" content="summarize-week" data-label="Weekly Summary">
+  <meta name="agentlet:action" content="view-history" data-label="Summary History">
+  <meta name="agentlet:action" content="export-summary" data-label="Export to File">
+
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 1rem;
+      line-height: 1.6;
+    }
+    .summary-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 1rem;
+      border-radius: 8px;
+      margin-bottom: 1rem;
+    }
+    .summary-date {
+      font-size: 0.875rem;
+      opacity: 0.9;
+    }
+    .summary-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-top: 0.25rem;
+    }
+    .stats-row {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .stat-box {
+      flex: 1;
+      background: #f8fafc;
+      padding: 0.75rem;
+      border-radius: 6px;
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #1e293b;
+    }
+    .stat-label {
+      font-size: 0.75rem;
+      color: #64748b;
+    }
+    .section {
+      margin-bottom: 1rem;
+    }
+    .section-title {
+      font-weight: 600;
+      color: #475569;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .activity-list {
+      background: #f8fafc;
+      border-radius: 6px;
+      padding: 0.75rem;
+    }
+    .activity-item {
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .activity-item:last-child {
+      border-bottom: none;
+    }
+    .activity-time {
+      font-size: 0.75rem;
+      color: #94a3b8;
+    }
+    .highlight {
+      background: #fef3c7;
+      padding: 0.75rem;
+      border-radius: 6px;
+      border-left: 3px solid #f59e0b;
+    }
+  </style>
+</head>
+<body>
+
+<noscript>
+  <h1>Daily Summary</h1>
+  <p>Generates summaries of your recent work and activity.</p>
+</noscript>
+
+<script type="module">
+const { bridge } = window;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DATA GATHERING
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function gatherActivityData(timeRange = 'today') {
+  const data = {
+    files: [],
+    git: null,
+    notes: [],
+    host: bridge.host?.name || 'unknown',
+    timeRange
+  };
+
+  // Get recently modified items
+  try {
+    const context = await bridge.perceive({
+      scope: 'workspace',
+      include: ['recent', 'modified']
+    });
+
+    data.files = (context.items || []).filter(item => {
+      const modified = item.modifiedAt || item.mtime;
+      if (!modified) return true; // Include if no date
+      return isWithinRange(new Date(modified), timeRange);
+    });
+  } catch (e) {
+    await bridge.activity.log('Could not get recent files');
+  }
+
+  // Try to get git activity
+  try {
+    const gitLog = await bridge.context.query('git', {
+      type: 'log',
+      since: getStartDate(timeRange).toISOString()
+    });
+    data.git = gitLog;
+  } catch {
+    // Git not available
+  }
+
+  // Get previous summary for comparison
+  try {
+    const history = await bridge.storage.get('summaryHistory') || [];
+    data.previousSummary = history[0];
+  } catch {
+    // Storage not available
+  }
+
+  return data;
+}
+
+function isWithinRange(date, range) {
+  const start = getStartDate(range);
+  return date >= start;
+}
+
+function getStartDate(range) {
+  const now = new Date();
+  switch (range) {
+    case 'today':
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    case 'week':
+      const weekAgo = new Date(now);
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      return weekAgo;
+    case 'month':
+      const monthAgo = new Date(now);
+      monthAgo.setMonth(monthAgo.getMonth() - 1);
+      return monthAgo;
+    default:
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SUMMARY GENERATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function generateSummary(timeRange = 'today') {
+  await bridge.activity.start(`Generating ${timeRange}'s summary...`);
+
+  const data = await gatherActivityData(timeRange);
+
+  await bridge.activity.log(`Found ${data.files.length} modified items`);
+  if (data.git) {
+    await bridge.activity.log(`Found ${data.git.length || 0} commits`);
+  }
+
+  // Use AI to create summary
+  const summary = await bridge.inference({
+    messages: [
+      {
+        role: 'system',
+        content: `You are creating a work summary. Analyze the activity data and create a meaningful summary.
+
+Include:
+- Overview: What was the main focus?
+- Key accomplishments: What was completed or progressed?
+- Files/notes touched: Categorize by type of work
+- Git activity: If available, summarize commits
+- Patterns: Any notable patterns (e.g., "focused on frontend", "debugging session")
+- Suggestions: What might be good to tackle next?
+
+Return JSON:
+{
+  "overview": "brief overview paragraph",
+  "accomplishments": ["item 1", "item 2"],
+  "categories": { "category": ["file1", "file2"] },
+  "commitSummary": "if git data available",
+  "patterns": ["pattern 1"],
+  "suggestions": ["suggestion 1"],
+  "stats": {
+    "filesModified": 0,
+    "commits": 0,
+    "mainCategory": "string"
+  }
+}`
+      },
+      {
+        role: 'user',
+        content: `Time range: ${timeRange}
+Host: ${data.host}
+
+Modified files/items:
+${JSON.stringify(data.files.slice(0, 50).map(f => ({
+  name: f.name || f.title || f.path,
+  type: f.type || inferType(f),
+  modified: f.modifiedAt || f.mtime
+})), null, 2)}
+
+Git log:
+${data.git ? JSON.stringify(data.git.slice(0, 20)) : 'Not available'}
+
+Previous summary (for comparison):
+${data.previousSummary ? JSON.stringify(data.previousSummary.summary) : 'None'}`
+      }
+    ]
+  });
+
+  let parsed;
+  try {
+    parsed = JSON.parse(summary);
+  } catch {
+    parsed = {
+      overview: summary,
+      accomplishments: [],
+      categories: {},
+      stats: { filesModified: data.files.length }
+    };
+  }
+
+  await bridge.activity.complete('Summary ready');
+
+  // Save to history
+  const summaryRecord = {
+    date: new Date().toISOString(),
+    timeRange,
+    summary: parsed,
+    host: data.host
+  };
+
+  try {
+    const history = await bridge.storage.get('summaryHistory') || [];
+    history.unshift(summaryRecord);
+    await bridge.storage.set('summaryHistory', history.slice(0, 30));
+  } catch {
+    // Storage not available
+  }
+
+  return { summary: parsed, data };
+}
+
+function inferType(item) {
+  const name = item.name || item.path || '';
+  if (name.endsWith('.md')) return 'note';
+  if (name.endsWith('.js') || name.endsWith('.ts')) return 'code';
+  if (name.endsWith('.css') || name.endsWith('.scss')) return 'style';
+  if (name.endsWith('.json')) return 'config';
+  return 'file';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DISPLAY
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function showSummary(timeRange) {
+  const { summary, data } = await generateSummary(timeRange);
+
+  const title = timeRange === 'today' ? "Today's Summary" :
+                timeRange === 'week' ? 'Weekly Summary' : 'Summary';
+
+  const dateStr = timeRange === 'today'
+    ? new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+    : `Last 7 days`;
+
+  await bridge.ui.panel({
+    title,
+    content: `
+      <div class="summary-header">
+        <div class="summary-date">${dateStr}</div>
+        <div class="summary-title">${escapeHtml(summary.stats?.mainCategory || data.host)}</div>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat-box">
+          <div class="stat-value">${summary.stats?.filesModified || data.files.length}</div>
+          <div class="stat-label">Files</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value">${summary.stats?.commits || (data.git?.length || 0)}</div>
+          <div class="stat-label">Commits</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value">${summary.accomplishments?.length || 0}</div>
+          <div class="stat-label">Completed</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Overview</div>
+        <p style="margin: 0; color: #475569;">${escapeHtml(summary.overview || 'No overview available')}</p>
+      </div>
+
+      ${summary.accomplishments?.length > 0 ? `
+        <div class="section">
+          <div class="section-title">Key Accomplishments</div>
+          <div class="activity-list">
+            ${summary.accomplishments.map(a => `
+              <div class="activity-item">${escapeHtml(a)}</div>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+
+      ${summary.patterns?.length > 0 ? `
+        <div class="section">
+          <div class="section-title">Patterns Noticed</div>
+          <div class="highlight">
+            ${summary.patterns.map(p => `<div>${escapeHtml(p)}</div>`).join('')}
+          </div>
+        </div>
+      ` : ''}
+
+      ${summary.suggestions?.length > 0 ? `
+        <div class="section">
+          <div class="section-title">Suggested Next Steps</div>
+          <ul style="margin: 0; padding-left: 1.25rem; color: #475569;">
+            ${summary.suggestions.map(s => `<li>${escapeHtml(s)}</li>`).join('')}
+          </ul>
+        </div>
+      ` : ''}
+    `,
+    width: 450
+  });
+}
+
+async function viewHistory() {
+  const history = await bridge.storage.get('summaryHistory') || [];
+
+  if (history.length === 0) {
+    await bridge.ui.notify?.('No summary history yet', 'info');
+    return;
+  }
+
+  await bridge.ui.panel({
+    title: 'Summary History',
+    content: `
+      <div style="max-height: 400px; overflow-y: auto;">
+        ${history.slice(0, 10).map(h => `
+          <div style="padding: 0.75rem; background: #f8fafc; border-radius: 6px; margin-bottom: 0.5rem;">
+            <div style="font-weight: 600;">
+              ${new Date(h.date).toLocaleDateString()}
+              <span style="font-weight: normal; color: #64748b; font-size: 0.875rem;">
+                (${h.timeRange})
+              </span>
+            </div>
+            <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: #475569;">
+              ${escapeHtml((h.summary.overview || '').slice(0, 150))}...
+            </p>
+          </div>
+        `).join('')}
+      </div>
+    `,
+    width: 400
+  });
+}
+
+async function exportSummary() {
+  const { summary } = await generateSummary('today');
+
+  const markdown = `# Daily Summary - ${new Date().toLocaleDateString()}
+
+## Overview
+${summary.overview || 'No overview available'}
+
+## Accomplishments
+${summary.accomplishments?.map(a => `- ${a}`).join('\n') || 'None recorded'}
+
+## Patterns
+${summary.patterns?.map(p => `- ${p}`).join('\n') || 'None detected'}
+
+## Suggested Next Steps
+${summary.suggestions?.map(s => `- ${s}`).join('\n') || 'None'}
+
+---
+*Generated by Daily Summary Agent*
+`;
+
+  try {
+    const filename = `summary-${new Date().toISOString().split('T')[0]}.md`;
+    await bridge.act({
+      intent: 'create-file',
+      path: filename,
+      content: markdown
+    });
+    await bridge.ui.notify?.(`Exported to ${filename}`, 'success');
+  } catch (e) {
+    // If can't create file, show in panel
+    await bridge.ui.panel({
+      title: 'Export Summary',
+      content: `<pre style="white-space: pre-wrap; font-size: 0.875rem;">${escapeHtml(markdown)}</pre>`,
+      width: 500
+    });
+  }
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ACTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+bridge.action('summarize-today', async () => {
+  await showSummary('today');
+});
+
+bridge.action('summarize-week', async () => {
+  await showSummary('week');
+});
+
+bridge.action('view-history', async () => {
+  await viewHistory();
+});
+
+bridge.action('export-summary', async () => {
+  await exportSummary();
+});
+</script>
+
+</body>
+</html>

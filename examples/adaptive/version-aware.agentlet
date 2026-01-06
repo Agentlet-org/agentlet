@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<!--
+  VERSION-AWARE HELPER - Adaptive Agent Example
+
+  Demonstrates: Spec versioning and feature detection APIs
+  - bridge.specVersion for spec version check
+  - bridge.features() for available feature list
+  - bridge.supports(feature) for feature detection
+  - bridge.compareVersion(a, b) for semver comparison
+  - Graceful degradation based on available features
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Version-Aware Helper</title>
+
+  <!-- Identity -->
+  <meta name="agentlet" content="0.1">
+  <meta name="agentlet:name" content="version-aware">
+  <meta name="agentlet:version" content="1.0.0">
+  <meta name="agentlet:description" content="Demonstrates versioning APIs and graceful feature detection">
+  <meta name="agentlet:author" content="Agentlet Examples">
+  <meta name="agentlet:license" content="MIT">
+  <meta name="agentlet:icon" content="#icon">
+
+  <!-- Portability: Adaptive - works in any host with graceful degradation -->
+  <meta name="agentlet:portability" content="adaptive">
+
+  <!-- Required capabilities -->
+  <meta name="agentlet:requires" content="inference:basic">
+
+  <!-- Optional capabilities - demonstrate graceful degradation -->
+  <meta name="agentlet:optional" content="perceive">
+  <meta name="agentlet:optional" content="act">
+
+  <!-- Standard capabilities -->
+  <meta name="agentlet:capability" content="ui:notify">
+  <meta name="agentlet:capability" content="ui:panel">
+
+  <!-- Actions -->
+  <meta name="agentlet:action" content="analyze" data-label="Analyze Environment">
+  <meta name="agentlet:action" content="feature-check" data-label="Check Features">
+
+  <!-- Discovery -->
+  <meta name="agentlet:category" content="development">
+  <meta name="agentlet:tag" content="versioning">
+  <meta name="agentlet:tag" content="feature-detection">
+  <meta name="agentlet:tag" content="adaptive">
+</head>
+<body>
+
+<!-- Icon -->
+<svg id="icon" viewBox="0 0 24 24" hidden>
+  <rect width="24" height="24" rx="4" fill="#6366f1"/>
+  <text x="12" y="16" text-anchor="middle" fill="white" font-size="10" font-family="system-ui" font-weight="bold">0.1</text>
+</svg>
+
+<!-- Browser Preview -->
+<noscript>
+<style>
+  body { font-family: system-ui; max-width: 600px; margin: 2rem auto; padding: 1rem; }
+  h1 { display: flex; align-items: center; gap: 0.5rem; }
+  h1 svg { width: 32px; height: 32px; }
+  .badge { background: #6366f1; color: white; padding: 0.125rem 0.5rem; border-radius: 999px; font-size: 0.75rem; }
+  .type { background: #8b5cf6; color: white; padding: 0.15rem 0.75rem; border-radius: 4px; font-size: 0.875rem; display: inline-block; margin: 0.5rem 0; }
+  code { background: #f3f4f6; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.875rem; }
+</style>
+<h1>
+  <svg viewBox="0 0 24 24"><rect width="24" height="24" rx="4" fill="#6366f1"/><text x="12" y="16" text-anchor="middle" fill="white" font-size="10" font-family="system-ui" font-weight="bold">0.1</text></svg>
+  Version-Aware Helper <span class="badge">v1.0.0</span>
+</h1>
+<div class="type">Adaptive Agent</div>
+<p>Demonstrates the versioning and feature detection APIs:</p>
+<ul>
+  <li><code>bridge.specVersion</code> - Get spec version</li>
+  <li><code>bridge.features()</code> - List available features</li>
+  <li><code>bridge.supports(feature)</code> - Check feature support</li>
+  <li><code>bridge.compareVersion(a, b)</code> - Compare versions</li>
+</ul>
+<h3>Actions</h3>
+<ul>
+  <li><strong>Analyze Environment</strong> - Full environment report</li>
+  <li><strong>Check Features</strong> - Quick feature availability check</li>
+</ul>
+<p><em>This agent demonstrates graceful degradation based on available features.</em></p>
+</noscript>
+
+<!-- Agent Code -->
+<script type="module">
+const { bridge } = window;
+
+// ════════════════════════════════════════════════════════════════════
+// LIFECYCLE
+// ════════════════════════════════════════════════════════════════════
+
+bridge.onActivate(async () => {
+  console.log('Version-Aware Helper activated');
+  console.log('Spec Version:', bridge.specVersion);
+  console.log('Features:', bridge.features());
+  console.log('Host:', bridge.host.name, 'v' + bridge.host.version);
+});
+
+// ════════════════════════════════════════════════════════════════════
+// ANALYZE ACTION - Full environment report
+// ════════════════════════════════════════════════════════════════════
+
+bridge.action('analyze', async () => {
+  // Get spec version
+  const specVersion = bridge.specVersion;
+
+  // Get all available features
+  const features = bridge.features();
+
+  // Check specific features
+  const hasPerceive = bridge.supports('perceive');
+  const hasAct = bridge.supports('act');
+  const hasInference = bridge.supports('inference');
+  const hasStreaming = bridge.supports('inference:streaming');
+
+  // Version comparison examples
+  const isMinSpec01 = bridge.compareVersion(specVersion, '0.1') >= 0;
+  const isMinSpec02 = bridge.compareVersion(specVersion, '0.2') >= 0;
+
+  // Build the report
+  let report = `
+    <div style="font-family: system-ui; padding: 1rem;">
+      <h3 style="margin-top: 0; color: #6366f1;">Environment Analysis</h3>
+
+      <div style="background: #f3f4f6; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+          <div><strong>Spec Version:</strong></div>
+          <div>${specVersion}</div>
+          <div><strong>Host:</strong></div>
+          <div>${bridge.host.name} v${bridge.host.version}</div>
+        </div>
+      </div>
+
+      <h4>Features</h4>
+      <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;">
+        ${features.map(f => `
+          <span style="background: #e0e7ff; color: #3730a3; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.875rem;">
+            ${f}
+          </span>
+        `).join('')}
+      </div>
+
+      <h4>Capabilities</h4>
+      <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;">
+        ${bridge.capabilities.map(c => `
+          <span style="background: #dcfce7; color: #166534; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.875rem;">
+            ${c}
+          </span>
+        `).join('')}
+      </div>
+
+      <h4>Feature Checks</h4>
+      <table style="width: 100%; border-collapse: collapse; font-size: 0.875rem;">
+        <tr style="border-bottom: 1px solid #e5e7eb;">
+          <td style="padding: 0.5rem 0;">perceive</td>
+          <td style="text-align: right;">${hasPerceive ? '✓' : '✗'}</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #e5e7eb;">
+          <td style="padding: 0.5rem 0;">act</td>
+          <td style="text-align: right;">${hasAct ? '✓' : '✗'}</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #e5e7eb;">
+          <td style="padding: 0.5rem 0;">inference</td>
+          <td style="text-align: right;">${hasInference ? '✓' : '✗'}</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #e5e7eb;">
+          <td style="padding: 0.5rem 0;">inference:streaming</td>
+          <td style="text-align: right;">${hasStreaming ? '✓' : '✗'}</td>
+        </tr>
+      </table>
+
+      <h4>Version Checks</h4>
+      <table style="width: 100%; border-collapse: collapse; font-size: 0.875rem;">
+        <tr style="border-bottom: 1px solid #e5e7eb;">
+          <td style="padding: 0.5rem 0;">Spec >= 0.1</td>
+          <td style="text-align: right;">${isMinSpec01 ? '✓' : '✗'}</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #e5e7eb;">
+          <td style="padding: 0.5rem 0;">Spec >= 0.2</td>
+          <td style="text-align: right;">${isMinSpec02 ? '✓' : '✗'}</td>
+        </tr>
+      </table>
+  `;
+
+  // Demonstrate graceful degradation
+  report += `<h4 style="margin-top: 1rem;">Graceful Degradation Demo</h4>`;
+
+  if (hasPerceive) {
+    try {
+      const ctx = await bridge.perceive({ scope: 'selection', limit: 3 });
+      report += `
+        <div style="background: #dcfce7; padding: 0.75rem; border-radius: 4px; margin-bottom: 0.5rem;">
+          <strong>perceive:</strong> ${ctx.items.length} items in selection
+        </div>
+      `;
+    } catch (e) {
+      report += `
+        <div style="background: #fef3c7; padding: 0.75rem; border-radius: 4px; margin-bottom: 0.5rem;">
+          <strong>perceive:</strong> Error - ${e.message}
+        </div>
+      `;
+    }
+  } else {
+    report += `
+      <div style="background: #f3f4f6; padding: 0.75rem; border-radius: 4px; margin-bottom: 0.5rem;">
+        <strong>perceive:</strong> <em>Not available - using basic mode</em>
+      </div>
+    `;
+  }
+
+  if (hasInference) {
+    report += `
+      <div style="background: #dcfce7; padding: 0.75rem; border-radius: 4px;">
+        <strong>inference:</strong> Available (streaming: ${hasStreaming ? 'yes' : 'no'})
+      </div>
+    `;
+  } else {
+    report += `
+      <div style="background: #fee2e2; padding: 0.75rem; border-radius: 4px;">
+        <strong>inference:</strong> Not available
+      </div>
+    `;
+  }
+
+  report += `</div>`;
+
+  await bridge.ui.panel({
+    title: 'Environment Report',
+    content: report,
+    width: 450
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// FEATURE CHECK ACTION - Quick feature availability check
+// ════════════════════════════════════════════════════════════════════
+
+bridge.action('feature-check', async () => {
+  const specVersion = bridge.specVersion;
+  const features = bridge.features();
+
+  // Quick summary
+  const summary = [
+    `Spec: ${specVersion}`,
+    `Host: ${bridge.host.name}`,
+    `Features: ${features.length}`,
+    `Perceive: ${bridge.supports('perceive') ? 'Yes' : 'No'}`,
+    `Act: ${bridge.supports('act') ? 'Yes' : 'No'}`,
+    `Inference: ${bridge.supports('inference') ? 'Yes' : 'No'}`
+  ].join(' | ');
+
+  await bridge.ui.notify(summary, 'info');
+});
+</script>
+
+</body>
+</html>

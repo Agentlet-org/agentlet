@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<title>Hello World</title>
+<meta name="agentlet" content="0.1">
+<meta name="agentlet:name" content="hello-world">
+<meta name="agentlet:version" content="1.0.0">
+<meta name="agentlet:description" content="The simplest possible Agentlet">
+<meta name="agentlet:author" content="Agentlet Examples">
+<meta name="agentlet:license" content="MIT">
+<meta name="agentlet:portability" content="universal">
+<meta name="agentlet:capability" content="ui:notify">
+<meta name="agentlet:action" content="greet" data-label="Say Hello">
+
+<script type="module">
+const { bridge } = window;
+
+bridge.action('greet', async () => {
+  await bridge.ui.notify("Hello from Agentlet! 👋", "success");
+  return { message: "Hello, World!" };
+});
+</script>

@@ -1,0 +1,26 @@
+{
+  "name": "@agentlet/host-sdk",
+  "version": "0.1.0",
+  "description": "SDK for building Agentlet host implementations",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "agentlet",
+    "ai-agents",
+    "sdk",
+    "host",
+    "bridge"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

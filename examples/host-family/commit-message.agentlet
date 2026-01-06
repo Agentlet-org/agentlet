@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<!--
+  COMMIT MESSAGE WRITER - Host-Family Agent Example (IDEs/Terminals)
+
+  Demonstrates: Git integration with act intent
+  - Host-family portability (VS Code, JetBrains, terminal)
+  - Context queries for git status/diff
+  - Fallback to perceive for adaptive hosts
+  - Act intent for git-commit
+  - Preference-driven commit styles
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Commit Message Writer</title>
+
+  <meta name="agentlet" content="0.1">
+  <meta name="agentlet:name" content="commit-message-writer">
+  <meta name="agentlet:version" content="1.0.0">
+  <meta name="agentlet:description" content="Generates meaningful commit messages from staged changes">
+  <meta name="agentlet:author" content="Agentlet Project">
+  <meta name="agentlet:license" content="MIT">
+
+  <!-- Host-family: works in git-aware hosts (VS Code, JetBrains, terminal) -->
+  <meta name="agentlet:portability" content="host-family">
+  <meta name="agentlet:host" content="vscode:>=1.80.0">
+  <meta name="agentlet:host" content="jetbrains:>=2023.1">
+  <meta name="agentlet:host" content="terminal:*">
+
+  <!-- Required capabilities -->
+  <meta name="agentlet:requires" content="context:git:read">
+  <meta name="agentlet:requires" content="inference:basic">
+  <meta name="agentlet:requires" content="ui:dialog">
+
+  <!-- Optional capabilities -->
+  <meta name="agentlet:optional" content="act">
+  <meta name="agentlet:optional" content="ui:notify">
+  <meta name="agentlet:optional" content="storage">
+
+  <!-- Intents -->
+  <meta name="agentlet:intent" content="git-commit">
+
+  <!-- Actions -->
+  <meta name="agentlet:action" content="generate" data-label="Generate Commit Message">
+  <meta name="agentlet:action" content="generate-and-commit" data-label="Generate & Commit" data-confirm="true">
+
+  <!-- User preferences -->
+  <meta name="agentlet:preference" content="style"
+        data-type="select"
+        data-label="Commit style"
+        data-default="conventional">
+  <meta name="agentlet:preference:option" content="style:conventional" data-label="Conventional Commits">
+  <meta name="agentlet:preference:option" content="style:simple" data-label="Simple">
+  <meta name="agentlet:preference:option" content="style:detailed" data-label="Detailed">
+
+  <meta name="agentlet:preference" content="include-body"
+        data-type="boolean"
+        data-label="Include body with details"
+        data-default="true">
+
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 1rem;
+    }
+    .commit-preview {
+      background: #1e293b;
+      color: #e2e8f0;
+      padding: 1rem;
+      border-radius: 8px;
+      font-family: monospace;
+      white-space: pre-wrap;
+    }
+    .commit-type {
+      color: #22c55e;
+    }
+    .commit-scope {
+      color: #60a5fa;
+    }
+    .diff-stat {
+      background: #f1f5f9;
+      padding: 0.75rem;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+      font-size: 0.875rem;
+    }
+    .file-added { color: #16a34a; }
+    .file-modified { color: #ca8a04; }
+    .file-deleted { color: #dc2626; }
+    .action-buttons {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+    .btn {
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.875rem;
+    }
+    .btn-primary {
+      background: #3b82f6;
+      color: white;
+    }
+    .btn-secondary {
+      background: #e2e8f0;
+      color: #475569;
+    }
+  </style>
+</head>
+<body>
+
+<noscript>
+  <h1>Commit Message Writer</h1>
+  <p>Generates meaningful commit messages from your staged changes.</p>
+  <p><strong>Actions:</strong></p>
+  <ul>
+    <li>Generate Commit Message - Creates a message for review</li>
+    <li>Generate & Commit - Creates and commits in one step</li>
+  </ul>
+</noscript>
+
+<script type="module">
+const { bridge } = window;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GIT CONTEXT HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function getGitContext() {
+  // Query git status and diff from host
+  try {
+    const status = await bridge.context.query('git', { type: 'status' });
+    const diff = await bridge.context.query('git', { type: 'diff', staged: true });
+    const recentCommits = await bridge.context.query('git', {
+      type: 'log',
+      limit: 5
+    });
+
+    return { status, diff, recentCommits };
+  } catch (e) {
+    // Fall back to perceive for adaptive hosts
+    const context = await bridge.perceive({
+      scope: 'workspace',
+      include: ['git']
+    });
+
+    return {
+      status: context.git?.status || context.items,
+      diff: context.git?.diff || '',
+      recentCommits: context.git?.log || []
+    };
+  }
+}
+
+function parseGitStatus(status) {
+  if (typeof status === 'string') {
+    // Parse git status output
+    const lines = status.split('\n');
+    const staged = {
+      added: [],
+      modified: [],
+      deleted: []
+    };
+
+    for (const line of lines) {
+      if (line.startsWith('A ') || line.startsWith('A  ')) {
+        staged.added.push(line.slice(3).trim());
+      } else if (line.startsWith('M ') || line.startsWith('M  ')) {
+        staged.modified.push(line.slice(3).trim());
+      } else if (line.startsWith('D ') || line.startsWith('D  ')) {
+        staged.deleted.push(line.slice(3).trim());
+      }
+    }
+
+    return staged;
+  }
+
+  // Already structured
+  return status;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COMMIT MESSAGE GENERATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function generateCommitMessage(autoCommit = false) {
+  await bridge.activity.start('Analyzing changes...');
+
+  const gitContext = await getGitContext();
+  const staged = parseGitStatus(gitContext.status);
+
+  // Check if there are staged changes
+  const totalStaged = (staged.added?.length || 0) +
+                      (staged.modified?.length || 0) +
+                      (staged.deleted?.length || 0);
+
+  if (totalStaged === 0) {
+    await bridge.activity.complete('No staged changes');
+    await bridge.ui.notify?.('No staged changes to commit', 'warning')
+      || await bridge.ui.dialog({
+        title: 'No Staged Changes',
+        message: 'Stage some changes first using git add.',
+        buttons: ['OK']
+      });
+    return;
+  }
+
+  await bridge.activity.log(`Found ${totalStaged} staged files`);
+
+  // Get user preferences
+  const prefs = await bridge.preferences?.get() || {};
+  const style = prefs.style || 'conventional';
+  const includeBody = prefs['include-body'] !== false;
+
+  // Build prompt based on style
+  const systemPrompt = buildPrompt(style, includeBody, gitContext.recentCommits);
+
+  await bridge.activity.log('Generating commit message...');
+
+  const response = await bridge.inference({
+    messages: [
+      { role: 'system', content: systemPrompt },
+      {
+        role: 'user',
+        content: `Staged files:
+Added: ${staged.added?.join(', ') || 'none'}
+Modified: ${staged.modified?.join(', ') || 'none'}
+Deleted: ${staged.deleted?.join(', ') || 'none'}
+
+Diff:
+${gitContext.diff?.slice(0, 4000) || 'No diff available'}`
+      }
+    ]
+  });
+
+  let commitMessage;
+  try {
+    const parsed = JSON.parse(response);
+    commitMessage = formatCommitMessage(parsed, style, includeBody);
+  } catch {
+    commitMessage = response.trim();
+  }
+
+  await bridge.activity.complete('Message generated');
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SHOW PREVIEW (Trust Stage 2-3: Reasoning + Supervised Action)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const result = await bridge.ui.dialog({
+    title: 'Commit Message',
+    content: renderPreview(staged, commitMessage),
+    buttons: autoCommit ? ['Commit', 'Edit', 'Cancel'] : ['Copy', 'Edit', 'Cancel'],
+    defaultButton: autoCommit ? 'Commit' : 'Copy'
+  });
+
+  if (result === 'Cancel') {
+    return;
+  }
+
+  if (result === 'Edit') {
+    const edited = await bridge.ui.prompt({
+      title: 'Edit Commit Message',
+      value: commitMessage,
+      multiline: true
+    });
+
+    if (edited) {
+      commitMessage = edited;
+    } else {
+      return;
+    }
+  }
+
+  // Execute or copy
+  if (autoCommit || result === 'Commit') {
+    try {
+      await bridge.act({
+        intent: 'git-commit',
+        message: commitMessage
+      });
+      await bridge.ui.notify?.('Committed successfully', 'success');
+    } catch (e) {
+      await bridge.ui.notify?.(`Commit failed: ${e.message}`, 'error');
+    }
+  } else {
+    // Copy to clipboard (host should handle this)
+    await bridge.ui.notify?.('Message copied to clipboard', 'success');
+  }
+
+  // Save to history
+  try {
+    const history = await bridge.storage?.get('commits') || [];
+    history.unshift({
+      message: commitMessage,
+      files: totalStaged,
+      date: new Date().toISOString()
+    });
+    await bridge.storage?.set('commits', history.slice(0, 50));
+  } catch {
+    // Storage not available
+  }
+}
+
+function buildPrompt(style, includeBody, recentCommits) {
+  const styles = {
+    conventional: `Use Conventional Commits format: type(scope): description
+Types: feat, fix, docs, style, refactor, test, chore
+Scope is optional, use it for specific area (e.g., auth, api)`,
+
+    simple: `Write a simple, clear commit message.
+Start with a verb (Add, Fix, Update, Remove, Refactor).
+Keep it under 72 characters.`,
+
+    detailed: `Write a detailed commit message.
+First line: summary (max 72 chars)
+Then blank line, then bullet points explaining changes.`
+  };
+
+  const recentStyle = recentCommits?.length > 0
+    ? `\n\nRecent commits in this repo for style reference:\n${recentCommits.slice(0, 3).map(c => c.message || c).join('\n')}`
+    : '';
+
+  return `You are a commit message generator. ${styles[style]}
+
+${includeBody ? 'Include a body with more details if the change is significant.' : 'Keep it to one line only.'}
+${recentStyle}
+
+Return JSON: { "type": "...", "scope": "...", "subject": "...", "body": "..." or null }`;
+}
+
+function formatCommitMessage(parsed, style, includeBody) {
+  let message = '';
+
+  if (style === 'conventional') {
+    message = parsed.scope
+      ? `${parsed.type}(${parsed.scope}): ${parsed.subject}`
+      : `${parsed.type}: ${parsed.subject}`;
+  } else {
+    message = parsed.subject;
+  }
+
+  if (includeBody && parsed.body) {
+    message += '\n\n' + parsed.body;
+  }
+
+  return message;
+}
+
+function renderPreview(staged, message) {
+  return `
+    <div class="diff-stat">
+      <strong>Changes to commit:</strong><br>
+      ${staged.added?.length > 0 ? `<span class="file-added">+ ${staged.added.length} added</span> ` : ''}
+      ${staged.modified?.length > 0 ? `<span class="file-modified">~ ${staged.modified.length} modified</span> ` : ''}
+      ${staged.deleted?.length > 0 ? `<span class="file-deleted">- ${staged.deleted.length} deleted</span>` : ''}
+    </div>
+    <div class="commit-preview">${escapeHtml(message)}</div>
+  `;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ACTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+bridge.action('generate', async () => {
+  await generateCommitMessage(false);
+});
+
+bridge.action('generate-and-commit', async () => {
+  await generateCommitMessage(true);
+});
+</script>
+
+</body>
+</html>

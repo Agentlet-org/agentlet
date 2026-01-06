@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<!--
+  REFACTOR ASSISTANT - Host-Family Agent Example (IDEs)
+
+  Demonstrates: Code transformation with preview
+  - Multiple refactoring actions (extract, simplify, types, rename)
+  - Diff computation and visualization
+  - Act intent for replace-selection
+  - Structured JSON responses from inference
+  - Suggestion cards UI pattern
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Refactor Assistant</title>
+
+  <meta name="agentlet" content="0.1">
+  <meta name="agentlet:name" content="refactor-assistant">
+  <meta name="agentlet:version" content="1.0.0">
+  <meta name="agentlet:description" content="AI-powered code refactoring with live previews">
+  <meta name="agentlet:author" content="Agentlet Project">
+  <meta name="agentlet:license" content="MIT">
+
+  <!-- Host-specific -->
+  <meta name="agentlet:portability" content="host-family">
+  <meta name="agentlet:host" content="vscode:>=1.80.0">
+  <meta name="agentlet:host" content="cursor:>=0.1.0">
+
+  <!-- Required capabilities -->
+  <meta name="agentlet:requires" content="perceive">
+  <meta name="agentlet:requires" content="act">
+  <meta name="agentlet:requires" content="inference:basic">
+  <meta name="agentlet:requires" content="ui:panel">
+  <meta name="agentlet:requires" content="ui:confirm">
+
+  <!-- Optional capabilities -->
+  <meta name="agentlet:optional" content="storage">
+  <meta name="agentlet:optional" content="ui:notify">
+
+  <!-- Intents -->
+  <meta name="agentlet:intent" content="update-file">
+  <meta name="agentlet:intent" content="replace-selection">
+
+  <!-- Actions -->
+  <meta name="agentlet:action" content="suggest" data-label="Suggest Refactoring">
+  <meta name="agentlet:action" content="extract-function" data-label="Extract Function">
+  <meta name="agentlet:action" content="simplify" data-label="Simplify Code">
+  <meta name="agentlet:action" content="add-types" data-label="Add Type Annotations">
+  <meta name="agentlet:action" content="rename-variables" data-label="Improve Naming">
+
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 1rem;
+    }
+    .diff-container {
+      font-family: 'Fira Code', 'Consolas', monospace;
+      font-size: 0.8rem;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 1rem;
+    }
+    .diff-header {
+      background: #1e293b;
+      color: #94a3b8;
+      padding: 0.5rem 1rem;
+      font-size: 0.75rem;
+    }
+    .diff-content {
+      background: #0f172a;
+      padding: 1rem;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .diff-line {
+      padding: 0.125rem 0;
+      white-space: pre;
+    }
+    .diff-removed {
+      background: rgba(239, 68, 68, 0.2);
+      color: #fca5a5;
+    }
+    .diff-added {
+      background: rgba(34, 197, 94, 0.2);
+      color: #86efac;
+    }
+    .diff-context {
+      color: #94a3b8;
+    }
+    .suggestion-card {
+      background: #f8fafc;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 0.75rem;
+      border-left: 3px solid #3b82f6;
+    }
+    .suggestion-title {
+      font-weight: 600;
+      color: #1e293b;
+      margin-bottom: 0.25rem;
+    }
+    .suggestion-desc {
+      font-size: 0.875rem;
+      color: #64748b;
+    }
+    .suggestion-impact {
+      margin-top: 0.5rem;
+    }
+    .impact-badge {
+      display: inline-block;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 500;
+    }
+    .impact-high { background: #dcfce7; color: #166534; }
+    .impact-medium { background: #fef9c3; color: #854d0e; }
+    .impact-low { background: #f3f4f6; color: #6b7280; }
+  </style>
+</head>
+<body>
+
+<noscript>
+  <h1>Refactor Assistant</h1>
+  <p>AI-powered code refactoring with live previews.</p>
+</noscript>
+
+<script type="module">
+const { bridge } = window;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REFACTORING OPERATIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function suggestRefactoring() {
+  const context = await bridge.perceive({
+    scope: 'selection',
+    understand: true
+  });
+
+  if (!context.items || context.items.length === 0) {
+    await bridge.ui.notify?.('Select some code first', 'warning');
+    return;
+  }
+
+  const code = extractCode(context);
+
+  await bridge.activity.start('Analyzing code for refactoring opportunities...');
+
+  const analysis = await bridge.inference({
+    messages: [
+      {
+        role: 'system',
+        content: `You are a code quality expert. Analyze the code and suggest refactoring opportunities.
+
+For each suggestion provide:
+- name: short name for the refactoring
+- description: what would be improved
+- impact: "high", "medium", or "low"
+- type: "extract", "simplify", "rename", "restructure", "typing", "pattern"
+- before: the specific code snippet to change
+- after: how it would look after refactoring
+- reason: why this improves the code
+
+Return JSON: { "suggestions": [...] }
+Limit to the 5 most impactful suggestions.`
+      },
+      {
+        role: 'user',
+        content: `Analyze this code:\n\n${code}`
+      }
+    ]
+  });
+
+  let suggestions;
+  try {
+    const parsed = JSON.parse(analysis);
+    suggestions = parsed.suggestions || [];
+  } catch {
+    suggestions = [];
+  }
+
+  await bridge.activity.complete(`Found ${suggestions.length} refactoring opportunities`);
+
+  if (suggestions.length === 0) {
+    await bridge.ui.notify?.('No refactoring suggestions found', 'info');
+    return;
+  }
+
+  await showSuggestions(suggestions, context);
+}
+
+async function performRefactoring(type, customPrompt = null) {
+  const context = await bridge.perceive({
+    scope: 'selection',
+    understand: true
+  });
+
+  if (!context.items || context.items.length === 0) {
+    await bridge.ui.notify?.('Select some code first', 'warning');
+    return;
+  }
+
+  const code = extractCode(context);
+
+  await bridge.activity.start(`Refactoring: ${type}...`);
+
+  const prompts = {
+    'extract-function': {
+      system: `Extract the selected code into a well-named function.
+- Create an appropriate function name based on what the code does
+- Add parameters for any external dependencies
+- Add return type annotations if the language supports it
+- Provide the extracted function AND the updated call site`,
+
+      user: `Extract this into a function:\n\n${code}`
+    },
+
+    'simplify': {
+      system: `Simplify this code while maintaining functionality.
+- Remove unnecessary complexity
+- Use more idiomatic patterns
+- Reduce nesting
+- Combine redundant operations
+- Keep the same behavior`,
+
+      user: `Simplify this code:\n\n${code}`
+    },
+
+    'add-types': {
+      system: `Add type annotations to this code.
+- Add explicit types to function parameters
+- Add return types to functions
+- Add type annotations to variables where helpful
+- Use appropriate type syntax for the language`,
+
+      user: `Add type annotations:\n\n${code}`
+    },
+
+    'rename-variables': {
+      system: `Improve variable and function names in this code.
+- Use descriptive, meaningful names
+- Follow language naming conventions
+- Make the code self-documenting
+- Keep names concise but clear`,
+
+      user: `Improve naming:\n\n${code}`
+    }
+  };
+
+  const prompt = customPrompt || prompts[type];
+
+  const refactored = await bridge.inference({
+    messages: [
+      {
+        role: 'system',
+        content: `${prompt.system}
+
+Return JSON:
+{
+  "refactored": "the refactored code",
+  "changes": ["description of change 1", "description of change 2"],
+  "notes": "any important notes about the refactoring"
+}`
+      },
+      { role: 'user', content: prompt.user }
+    ]
+  });
+
+  let result;
+  try {
+    result = JSON.parse(refactored);
+  } catch {
+    result = { refactored: refactored, changes: [], notes: null };
+  }
+
+  await bridge.activity.complete('Refactoring complete');
+
+  await showDiff(code, result.refactored, result.changes, result.notes, context);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UI HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function showSuggestions(suggestions, context) {
+  const result = await bridge.ui.confirm({
+    title: `Refactoring Suggestions (${suggestions.length})`,
+    content: `
+      ${suggestions.map((s, idx) => `
+        <div class="suggestion-card" data-index="${idx}">
+          <div class="suggestion-title">${escapeHtml(s.name)}</div>
+          <div class="suggestion-desc">${escapeHtml(s.description)}</div>
+          <div class="suggestion-impact">
+            <span class="impact-badge impact-${s.impact}">${s.impact} impact</span>
+            <span style="margin-left: 0.5rem; font-size: 0.75rem; color: #64748b;">${s.type}</span>
+          </div>
+        </div>
+      `).join('')}
+    `,
+    buttons: ['Apply First', 'View Diffs', 'Cancel'],
+    width: 500
+  });
+
+  if (result === 'Cancel') return;
+
+  if (result === 'Apply First' && suggestions.length > 0) {
+    const first = suggestions[0];
+    await showDiff(first.before, first.after, [first.reason], null, context);
+  } else if (result === 'View Diffs') {
+    // Show detailed diff for each suggestion
+    for (const suggestion of suggestions) {
+      const action = await showDiff(
+        suggestion.before,
+        suggestion.after,
+        [suggestion.reason],
+        null,
+        context,
+        { showNext: suggestions.indexOf(suggestion) < suggestions.length - 1 }
+      );
+      if (action === 'Cancel') break;
+    }
+  }
+}
+
+async function showDiff(original, refactored, changes, notes, context, options = {}) {
+  const diffLines = computeDiff(original, refactored);
+
+  const buttons = ['Apply Changes', 'Cancel'];
+  if (options.showNext) buttons.splice(1, 0, 'Next');
+
+  const result = await bridge.ui.confirm({
+    title: 'Refactoring Preview',
+    content: `
+      ${changes?.length > 0 ? `
+        <div style="margin-bottom: 1rem;">
+          <strong>Changes:</strong>
+          <ul style="margin: 0.5rem 0; padding-left: 1.25rem; color: #475569;">
+            ${changes.map(c => `<li>${escapeHtml(c)}</li>`).join('')}
+          </ul>
+        </div>
+      ` : ''}
+
+      ${notes ? `
+        <div style="background: #fef3c7; padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.875rem;">
+          <strong>Note:</strong> ${escapeHtml(notes)}
+        </div>
+      ` : ''}
+
+      <div class="diff-container">
+        <div class="diff-header">Changes Preview</div>
+        <div class="diff-content">
+          ${diffLines.map(line => `
+            <div class="diff-line ${line.type === '+' ? 'diff-added' : line.type === '-' ? 'diff-removed' : 'diff-context'}">
+              ${line.type} ${escapeHtml(line.content)}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `,
+    buttons,
+    width: 600
+  });
+
+  if (result === 'Apply Changes') {
+    try {
+      await bridge.act({
+        intent: 'replace-selection',
+        content: refactored
+      });
+      await bridge.ui.notify?.('Refactoring applied', 'success');
+    } catch (e) {
+      await bridge.ui.notify?.(`Failed to apply: ${e.message}`, 'error');
+    }
+  }
+
+  return result;
+}
+
+function computeDiff(original, refactored) {
+  const originalLines = original.split('\n');
+  const refactoredLines = refactored.split('\n');
+  const diff = [];
+
+  // Simple line-by-line diff
+  const maxLen = Math.max(originalLines.length, refactoredLines.length);
+
+  for (let i = 0; i < maxLen; i++) {
+    const origLine = originalLines[i];
+    const newLine = refactoredLines[i];
+
+    if (origLine === newLine) {
+      if (origLine !== undefined) {
+        diff.push({ type: ' ', content: origLine });
+      }
+    } else {
+      if (origLine !== undefined) {
+        diff.push({ type: '-', content: origLine });
+      }
+      if (newLine !== undefined) {
+        diff.push({ type: '+', content: newLine });
+      }
+    }
+  }
+
+  return diff;
+}
+
+function extractCode(context) {
+  const item = context.items[0];
+  if (typeof item === 'string') return item;
+  return item.content || item.text || item.code || '';
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ACTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+bridge.action('suggest', async () => {
+  await suggestRefactoring();
+});
+
+bridge.action('extract-function', async () => {
+  await performRefactoring('extract-function');
+});
+
+bridge.action('simplify', async () => {
+  await performRefactoring('simplify');
+});
+
+bridge.action('add-types', async () => {
+  await performRefactoring('add-types');
+});
+
+bridge.action('rename-variables', async () => {
+  await performRefactoring('rename-variables');
+});
+</script>
+
+</body>
+</html>

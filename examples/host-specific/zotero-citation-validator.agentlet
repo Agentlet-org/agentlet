@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<!--
+  ZOTERO CITATION VALIDATOR - Host-Specific Agent Example
+
+  Demonstrates: Deep host integration (Zotero only)
+  - Host-specific context (bibliographic items)
+  - External API access (CrossRef)
+  - Context write for updating items
+  - Network capability for specific domain
+  - Host version requirement (>=7.0.0)
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Zotero Citation Validator</title>
+
+  <!-- Identity -->
+  <meta name="agentlet" content="0.1">
+  <meta name="agentlet:name" content="zotero-citation-validator">
+  <meta name="agentlet:version" content="1.0.0">
+  <meta name="agentlet:description" content="Validate and fix DOIs against CrossRef for Zotero items">
+  <meta name="agentlet:author" content="Agentlet Examples">
+  <meta name="agentlet:license" content="MIT">
+  <meta name="agentlet:icon" content="#icon">
+  
+  <!-- Portability: Host-Specific - Zotero only -->
+  <meta name="agentlet:portability" content="host-specific">
+  <meta name="agentlet:host" content="zotero:>=7.0.0">
+  
+  <!-- Capabilities - uses Zotero-specific context -->
+  <meta name="agentlet:capability" content="context:bibliographic:read">
+  <meta name="agentlet:capability" content="context:bibliographic:write">
+  <meta name="agentlet:capability" content="context:selection:read">
+  <meta name="agentlet:capability" content="network:api.crossref.org">
+  <meta name="agentlet:capability" content="inference:basic">
+  <meta name="agentlet:capability" content="storage">
+  <meta name="agentlet:capability" content="ui:panel">
+  <meta name="agentlet:capability" content="ui:notify">
+  <meta name="agentlet:capability" content="ui:confirm">
+  
+  <!-- Actions -->
+  <meta name="agentlet:action" content="validate-selected" 
+        data-label="Validate Selected" 
+        data-input="selection"
+        data-description="Check DOIs for selected items">
+  <meta name="agentlet:action" content="fix-selected" 
+        data-label="Fix Selected" 
+        data-input="selection" 
+        data-confirm="true"
+        data-description="Auto-fix metadata for selected items">
+  <meta name="agentlet:action" content="dashboard" 
+        data-label="Show Dashboard"
+        data-description="View validation statistics">
+  <meta name="agentlet:default-action" content="dashboard">
+  
+  <!-- Preferences -->
+  <meta name="agentlet:preference" content="autoFixThreshold"
+        data-type="number"
+        data-label="Auto-fix confidence threshold (%)"
+        data-default="90"
+        data-min="50"
+        data-max="100">
+  
+  <meta name="agentlet:preference" content="fieldsToFix"
+        data-type="select"
+        data-label="Fields to fix"
+        data-default="all">
+  <meta name="agentlet:preference:option" content="fieldsToFix:all" data-label="All fields">
+  <meta name="agentlet:preference:option" content="fieldsToFix:missing" data-label="Missing fields only">
+  <meta name="agentlet:preference:option" content="fieldsToFix:doi" data-label="DOI only">
+  
+  <!-- Discovery -->
+  <meta name="agentlet:category" content="bibliography">
+  <meta name="agentlet:tag" content="zotero">
+  <meta name="agentlet:tag" content="citations">
+  <meta name="agentlet:tag" content="doi">
+  <meta name="agentlet:tag" content="crossref">
+  
+  <!-- Limits -->
+  <meta name="agentlet:limit" content="maxNetworkRequests:100">
+</head>
+<body>
+
+<!-- Icon -->
+<svg id="icon" viewBox="0 0 24 24" hidden>
+  <rect width="24" height="24" rx="4" fill="#cc2936"/>
+  <path d="M6 4h12v2H6zM6 18h12v2H6zM4 8h2v8H4zM18 8h2v8h-2z" fill="white"/>
+  <path d="M9 10h6v4H9z" fill="white"/>
+</svg>
+
+<!-- Browser Preview -->
+<noscript>
+<style>
+  body { font-family: system-ui; max-width: 600px; margin: 2rem auto; padding: 1rem; }
+  h1 { display: flex; align-items: center; gap: 0.5rem; }
+  h1 svg { width: 32px; height: 32px; }
+  .badge { background: #cc2936; color: white; padding: 0.125rem 0.5rem; border-radius: 999px; font-size: 0.75rem; }
+  .type { background: #f59e0b; color: white; padding: 0.15rem 0.75rem; border-radius: 4px; font-size: 0.875rem; display: inline-block; margin: 0.5rem 0; }
+  .warning { background: #fef3c7; border: 1px solid #f59e0b; padding: 0.75rem; border-radius: 4px; margin: 1rem 0; }
+</style>
+<h1>
+  <svg viewBox="0 0 24 24"><rect width="24" height="24" rx="4" fill="#cc2936"/><path d="M6 4h12v2H6zM6 18h12v2H6zM4 8h2v8H4zM18 8h2v8h-2z" fill="white"/><path d="M9 10h6v4H9z" fill="white"/></svg>
+  Zotero Citation Validator <span class="badge">v1.0.0</span>
+</h1>
+<div class="type">Host-Specific Agent</div>
+<div class="warning">
+  <strong>Zotero 7.0+ required</strong> - This agent only works in Zotero.
+</div>
+<p>Validate DOIs against CrossRef and automatically fix incomplete metadata.</p>
+<h3>Actions</h3>
+<ul>
+  <li><strong>Validate Selected</strong> - Check if DOIs are valid and complete</li>
+  <li><strong>Fix Selected</strong> - Auto-fix metadata from CrossRef</li>
+  <li><strong>Dashboard</strong> - View validation statistics</li>
+</ul>
+<h3>Features</h3>
+<ul>
+  <li>Validates DOIs against CrossRef API</li>
+  <li>Auto-fills missing metadata (title, authors, journal, volume, pages)</li>
+  <li>AI-assisted DOI detection for items without DOI</li>
+  <li>Batch processing with progress tracking</li>
+</ul>
+</noscript>
+
+<!-- Agent Code -->
+<script type="module">
+const { bridge } = window;
+
+// ════════════════════════════════════════════════════════════════════
+// LIFECYCLE
+// ════════════════════════════════════════════════════════════════════
+
+bridge.onInstall(async ({ previousVersion }) => {
+  await bridge.storage.set('stats', { 
+    validated: 0, 
+    fixed: 0, 
+    errors: 0,
+    lastRun: null 
+  });
+  
+  if (!previousVersion) {
+    await bridge.ui.notify("Citation Validator installed!", "success");
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════
+// CROSSREF API
+// ════════════════════════════════════════════════════════════════════
+
+async function fetchCrossRef(doi) {
+  try {
+    const response = await fetch(
+      `https://api.crossref.org/works/${encodeURIComponent(doi)}`,
+      {
+        headers: {
+          'User-Agent': 'AgentletCitationValidator/1.0 (mailto:example@example.com)'
+        }
+      }
+    );
+    
+    if (!response.ok) return null;
+    
+    const data = await response.json();
+    return data.message;
+  } catch (e) {
+    console.error('CrossRef fetch error:', e);
+    return null;
+  }
+}
+
+function mapCrossRefToZotero(crossref) {
+  return {
+    title: crossref.title?.[0],
+    DOI: crossref.DOI,
+    publicationTitle: crossref['container-title']?.[0],
+    volume: crossref.volume,
+    issue: crossref.issue,
+    pages: crossref.page,
+    date: crossref.published?.['date-parts']?.[0]?.join('-'),
+    abstractNote: crossref.abstract?.replace(/<[^>]*>/g, ''), // Strip HTML
+    ISSN: crossref.ISSN?.[0],
+    creators: crossref.author?.map(a => ({
+      creatorType: 'author',
+      firstName: a.given,
+      lastName: a.family
+    }))
+  };
+}
+
+// ════════════════════════════════════════════════════════════════════
+// VALIDATE ACTION
+// ════════════════════════════════════════════════════════════════════
+
+bridge.action('validate-selected', async (input) => {
+  const items = input.items || await bridge.context.selection.get();
+  
+  if (items.length === 0) {
+    await bridge.ui.notify('Select items to validate', 'warning');
+    return;
+  }
+  
+  await bridge.activity.start(`Validating ${items.length} items`);
+  
+  const results = {
+    valid: [],
+    invalid: [],
+    noDoi: [],
+    errors: []
+  };
+  
+  for (let i = 0; i < items.length; i++) {
+    bridge.throwIfCancelled();
+    await bridge.activity.progress(i + 1, items.length, items[i].title?.slice(0, 40));
+    
+    const item = items[i];
+    
+    if (!item.DOI) {
+      results.noDoi.push(item);
+      continue;
+    }
+    
+    try {
+      const crossref = await fetchCrossRef(item.DOI);
+      
+      if (crossref) {
+        results.valid.push({
+          item,
+          crossref,
+          missingFields: findMissingFields(item, crossref)
+        });
+      } else {
+        results.invalid.push(item);
+      }
+    } catch (e) {
+      results.errors.push({ item, error: e.message });
+    }
+    
+    // Rate limiting
+    await bridge.utils.sleep(100);
+  }
+  
+  // Update stats
+  const stats = await bridge.storage.get('stats') || {};
+  stats.validated = (stats.validated || 0) + items.length;
+  stats.lastRun = new Date().toISOString();
+  await bridge.storage.set('stats', stats);
+  
+  await bridge.activity.complete('Validation complete');
+  
+  // Show results
+  await bridge.ui.panel({
+    title: 'Validation Results',
+    content: `
+      <div style="font-family: system-ui; padding: 1rem;">
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; margin-bottom: 1rem;">
+          <div style="text-align: center; padding: 0.75rem; background: #d1fae5; border-radius: 8px;">
+            <div style="font-size: 1.5rem; font-weight: bold; color: #059669;">${results.valid.length}</div>
+            <div style="font-size: 0.75rem; color: #666;">Valid</div>
+          </div>
+          <div style="text-align: center; padding: 0.75rem; background: #fee2e2; border-radius: 8px;">
+            <div style="font-size: 1.5rem; font-weight: bold; color: #dc2626;">${results.invalid.length}</div>
+            <div style="font-size: 0.75rem; color: #666;">Invalid DOI</div>
+          </div>
+          <div style="text-align: center; padding: 0.75rem; background: #fef3c7; border-radius: 8px;">
+            <div style="font-size: 1.5rem; font-weight: bold; color: #d97706;">${results.noDoi.length}</div>
+            <div style="font-size: 0.75rem; color: #666;">No DOI</div>
+          </div>
+          <div style="text-align: center; padding: 0.75rem; background: #f3f4f6; border-radius: 8px;">
+            <div style="font-size: 1.5rem; font-weight: bold; color: #6b7280;">${results.errors.length}</div>
+            <div style="font-size: 0.75rem; color: #666;">Errors</div>
+          </div>
+        </div>
+        
+        ${results.valid.filter(v => v.missingFields.length > 0).length > 0 ? `
+          <h4 style="margin-bottom: 0.5rem;">Items with missing fields:</h4>
+          <ul style="margin: 0; padding-left: 1.25rem; font-size: 0.875rem;">
+            ${results.valid.filter(v => v.missingFields.length > 0).slice(0, 5).map(v => `
+              <li>${v.item.title?.slice(0, 50)}... <span style="color: #d97706;">(${v.missingFields.join(', ')})</span></li>
+            `).join('')}
+            ${results.valid.filter(v => v.missingFields.length > 0).length > 5 ? '<li>...</li>' : ''}
+          </ul>
+        ` : ''}
+        
+        ${results.invalid.length > 0 ? `
+          <h4 style="margin-bottom: 0.5rem; color: #dc2626;">Invalid DOIs:</h4>
+          <ul style="margin: 0; padding-left: 1.25rem; font-size: 0.875rem;">
+            ${results.invalid.slice(0, 3).map(item => `
+              <li>${item.title?.slice(0, 50)}... <code style="background: #f3f4f6; padding: 0.125rem 0.15rem; border-radius: 2px;">${item.DOI}</code></li>
+            `).join('')}
+          </ul>
+        ` : ''}
+      </div>
+    `,
+    width: 450
+  });
+  
+  return results;
+});
+
+function findMissingFields(item, crossref) {
+  const missing = [];
+  const mapped = mapCrossRefToZotero(crossref);
+  
+  if (!item.title && mapped.title) missing.push('title');
+  if (!item.publicationTitle && mapped.publicationTitle) missing.push('journal');
+  if (!item.volume && mapped.volume) missing.push('volume');
+  if (!item.issue && mapped.issue) missing.push('issue');
+  if (!item.pages && mapped.pages) missing.push('pages');
+  if (!item.abstractNote && mapped.abstractNote) missing.push('abstract');
+  if ((!item.creators || item.creators.length === 0) && mapped.creators?.length) missing.push('authors');
+  
+  return missing;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// FIX ACTION
+// ════════════════════════════════════════════════════════════════════
+
+bridge.action('fix-selected', async (input) => {
+  const items = input.items || await bridge.context.selection.get();
+  
+  if (items.length === 0) {
+    await bridge.ui.notify('Select items to fix', 'warning');
+    return;
+  }
+  
+  const prefs = await bridge.preferences.get();
+  
+  await bridge.activity.start(`Fixing ${items.length} items`);
+  
+  let fixed = 0;
+  let skipped = 0;
+  
+  for (let i = 0; i < items.length; i++) {
+    bridge.throwIfCancelled();
+    await bridge.activity.progress(i + 1, items.length, items[i].title?.slice(0, 40));
+    
+    const item = items[i];
+    
+    // Try to find DOI if missing
+    let doi = item.DOI;
+    if (!doi) {
+      doi = await findDoiWithAI(item);
+      if (!doi) {
+        skipped++;
+        continue;
+      }
+    }
+    
+    const crossref = await fetchCrossRef(doi);
+    if (!crossref) {
+      skipped++;
+      continue;
+    }
+    
+    const mapped = mapCrossRefToZotero(crossref);
+    const updates = {};
+    
+    // Apply fixes based on preference
+    if (prefs.fieldsToFix === 'doi') {
+      if (!item.DOI && mapped.DOI) updates.DOI = mapped.DOI;
+    } else if (prefs.fieldsToFix === 'missing') {
+      if (!item.DOI && mapped.DOI) updates.DOI = mapped.DOI;
+      if (!item.title && mapped.title) updates.title = mapped.title;
+      if (!item.publicationTitle && mapped.publicationTitle) updates.publicationTitle = mapped.publicationTitle;
+      if (!item.volume && mapped.volume) updates.volume = mapped.volume;
+      if (!item.issue && mapped.issue) updates.issue = mapped.issue;
+      if (!item.pages && mapped.pages) updates.pages = mapped.pages;
+      if (!item.abstractNote && mapped.abstractNote) updates.abstractNote = mapped.abstractNote;
+    } else {
+      // All fields - overwrite with CrossRef data
+      if (mapped.DOI) updates.DOI = mapped.DOI;
+      if (mapped.title) updates.title = mapped.title;
+      if (mapped.publicationTitle) updates.publicationTitle = mapped.publicationTitle;
+      if (mapped.volume) updates.volume = mapped.volume;
+      if (mapped.issue) updates.issue = mapped.issue;
+      if (mapped.pages) updates.pages = mapped.pages;
+      if (mapped.abstractNote) updates.abstractNote = mapped.abstractNote;
+    }
+    
+    if (Object.keys(updates).length > 0) {
+      await bridge.context.update('bibliographic', item.id, updates);
+      fixed++;
+    } else {
+      skipped++;
+    }
+    
+    await bridge.utils.sleep(100);
+  }
+  
+  // Update stats
+  const stats = await bridge.storage.get('stats') || {};
+  stats.fixed = (stats.fixed || 0) + fixed;
+  await bridge.storage.set('stats', stats);
+  
+  await bridge.activity.complete(`Fixed ${fixed} items`);
+  await bridge.ui.notify(`Fixed ${fixed} items, skipped ${skipped}`, 'success');
+  
+  return { fixed, skipped };
+});
+
+async function findDoiWithAI(item) {
+  try {
+    const response = await bridge.inference({
+      messages: [
+        { 
+          role: 'system', 
+          content: 'Extract a DOI from the given citation information. Return ONLY the DOI (e.g., 10.1234/example) or "NONE" if not found. Do not include "doi:" prefix or URLs.' 
+        },
+        { 
+          role: 'user', 
+          content: `Title: ${item.title}\nAuthors: ${item.creators?.map(c => `${c.firstName} ${c.lastName}`).join(', ')}\nJournal: ${item.publicationTitle}\nYear: ${item.date}` 
+        }
+      ],
+      max_tokens: 50
+    });
+    
+    const doi = response.trim();
+    if (doi === 'NONE' || !doi.startsWith('10.')) {
+      return null;
+    }
+    return doi;
+  } catch (e) {
+    return null;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// DASHBOARD ACTION
+// ════════════════════════════════════════════════════════════════════
+
+bridge.action('dashboard', async () => {
+  const stats = await bridge.storage.get('stats') || { validated: 0, fixed: 0, errors: 0 };
+  const items = await bridge.context.query('bibliographic', {});
+  
+  // Count items by DOI status
+  const withDoi = items.filter(i => i.DOI).length;
+  const withoutDoi = items.length - withDoi;
+  
+  await bridge.ui.panel({
+    title: 'Citation Validator Dashboard',
+    content: `
+      <div style="font-family: system-ui; padding: 1rem;">
+        <h3 style="margin-top: 0;">Library Overview</h3>
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; margin-bottom: 1.5rem;">
+          <div style="text-align: center; padding: 1rem; background: #f0fdf4; border-radius: 8px;">
+            <div style="font-size: 2rem; font-weight: bold; color: #059669;">${withDoi}</div>
+            <div style="color: #666;">With DOI</div>
+          </div>
+          <div style="text-align: center; padding: 1rem; background: #fef3c7; border-radius: 8px;">
+            <div style="font-size: 2rem; font-weight: bold; color: #d97706;">${withoutDoi}</div>
+            <div style="color: #666;">Without DOI</div>
+          </div>
+        </div>
+        
+        <h3>Session Statistics</h3>
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem;">
+          <div style="padding: 0.75rem; background: #f3f4f6; border-radius: 8px;">
+            <div style="font-size: 1.25rem; font-weight: bold;">${stats.validated}</div>
+            <div style="font-size: 0.875rem; color: #666;">Items Validated</div>
+          </div>
+          <div style="padding: 0.75rem; background: #f3f4f6; border-radius: 8px;">
+            <div style="font-size: 1.25rem; font-weight: bold;">${stats.fixed}</div>
+            <div style="font-size: 0.875rem; color: #666;">Items Fixed</div>
+          </div>
+        </div>
+        
+        ${stats.lastRun ? `
+          <p style="margin-top: 1rem; font-size: 0.875rem; color: #888;">
+            Last run: ${new Date(stats.lastRun).toLocaleString()}
+          </p>
+        ` : ''}
+        
+        <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #e5e7eb;">
+          <p style="font-size: 0.875rem; color: #666; margin: 0;">
+            Select items and use "Validate Selected" or "Fix Selected" to process your library.
+          </p>
+        </div>
+      </div>
+    `,
+    width: 400
+  });
+});
+</script>
+
+</body>
+</html>

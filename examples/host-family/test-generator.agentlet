@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<!--
+  TEST GENERATOR - Host-Family Agent Example (IDEs)
+
+  Demonstrates: Code analysis with file creation
+  - Perceive for selection with understand:true
+  - Act intent for create-file and open-file
+  - Language and framework auto-detection
+  - JSON response parsing from inference
+  - Preferences for test framework/style
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Test Generator</title>
+
+  <meta name="agentlet" content="0.1">
+  <meta name="agentlet:name" content="test-generator">
+  <meta name="agentlet:version" content="1.0.0">
+  <meta name="agentlet:description" content="Generates unit tests for selected code">
+  <meta name="agentlet:author" content="Agentlet Project">
+  <meta name="agentlet:license" content="MIT">
+
+  <!-- Host-specific: VS Code and similar IDEs -->
+  <meta name="agentlet:portability" content="host-family">
+  <meta name="agentlet:host" content="vscode:>=1.80.0">
+  <meta name="agentlet:host" content="cursor:>=0.1.0">
+  <meta name="agentlet:host" content="jetbrains:>=2023.1">
+
+  <!-- Required capabilities -->
+  <meta name="agentlet:requires" content="perceive">
+  <meta name="agentlet:requires" content="act">
+  <meta name="agentlet:requires" content="inference:basic">
+  <meta name="agentlet:requires" content="ui:panel">
+  <meta name="agentlet:requires" content="ui:confirm">
+
+  <!-- Optional capabilities -->
+  <meta name="agentlet:optional" content="context:file:read">
+  <meta name="agentlet:optional" content="storage">
+  <meta name="agentlet:optional" content="ui:notify">
+
+  <!-- Intents -->
+  <meta name="agentlet:intent" content="create-file">
+  <meta name="agentlet:intent" content="open-file">
+
+  <!-- Actions -->
+  <meta name="agentlet:action" content="generate" data-label="Generate Tests">
+  <meta name="agentlet:action" content="generate-coverage" data-label="Generate with Coverage Goals">
+  <meta name="agentlet:action" content="add-edge-cases" data-label="Add Edge Case Tests">
+
+  <!-- User preferences -->
+  <meta name="agentlet:preference" content="framework"
+        data-type="select"
+        data-label="Test framework"
+        data-default="auto">
+  <meta name="agentlet:preference:option" content="framework:auto" data-label="Auto-detect">
+  <meta name="agentlet:preference:option" content="framework:jest" data-label="Jest">
+  <meta name="agentlet:preference:option" content="framework:vitest" data-label="Vitest">
+  <meta name="agentlet:preference:option" content="framework:mocha" data-label="Mocha">
+  <meta name="agentlet:preference:option" content="framework:pytest" data-label="pytest">
+  <meta name="agentlet:preference:option" content="framework:junit" data-label="JUnit">
+
+  <meta name="agentlet:preference" content="style"
+        data-type="select"
+        data-label="Test style"
+        data-default="describe">
+  <meta name="agentlet:preference:option" content="style:describe" data-label="describe/it blocks">
+  <meta name="agentlet:preference:option" content="style:test" data-label="test() functions">
+  <meta name="agentlet:preference:option" content="style:class" data-label="Test classes">
+
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 1rem;
+    }
+    .code-preview {
+      background: #1e293b;
+      color: #e2e8f0;
+      padding: 1rem;
+      border-radius: 8px;
+      font-family: 'Fira Code', 'Consolas', monospace;
+      font-size: 0.8rem;
+      overflow-x: auto;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .test-case {
+      background: #f0fdf4;
+      border-left: 3px solid #22c55e;
+      padding: 0.5rem 0.75rem;
+      margin-bottom: 0.5rem;
+      border-radius: 0 4px 4px 0;
+    }
+    .test-case-name {
+      font-weight: 600;
+      color: #166534;
+    }
+    .test-case-desc {
+      font-size: 0.875rem;
+      color: #475569;
+    }
+    .coverage-badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .coverage-high { background: #dcfce7; color: #166534; }
+    .coverage-medium { background: #fef9c3; color: #854d0e; }
+    .coverage-low { background: #fee2e2; color: #991b1b; }
+    .source-info {
+      background: #f1f5f9;
+      padding: 0.75rem;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+      font-size: 0.875rem;
+    }
+  </style>
+</head>
+<body>
+
+<noscript>
+  <h1>Test Generator</h1>
+  <p>Generates unit tests for your code.</p>
+</noscript>
+
+<script type="module">
+const { bridge } = window;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TEST GENERATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function generateTests(mode = 'standard') {
+  // Get selected code
+  const context = await bridge.perceive({
+    scope: 'selection',
+    understand: true
+  });
+
+  if (!context.items || context.items.length === 0) {
+    await bridge.ui.notify?.('Select some code first', 'warning');
+    return;
+  }
+
+  const sourceCode = extractCode(context);
+  const sourceFile = extractFilePath(context);
+  const language = detectLanguage(context, sourceCode);
+
+  if (!sourceCode.trim()) {
+    await bridge.ui.notify?.('No code content found', 'warning');
+    return;
+  }
+
+  await bridge.activity.start('Analyzing code for test generation...');
+  await bridge.activity.log(`Language: ${language}`);
+
+  // Get preferences
+  const prefs = await bridge.preferences?.get() || {};
+  const framework = prefs.framework === 'auto'
+    ? await detectFramework(language)
+    : prefs.framework;
+  const style = prefs.style || 'describe';
+
+  await bridge.activity.log(`Framework: ${framework}`);
+
+  // Build the generation prompt
+  const prompt = buildTestPrompt(mode, sourceCode, language, framework, style);
+
+  const generatedTests = await bridge.inference({
+    messages: [
+      { role: 'system', content: prompt.system },
+      { role: 'user', content: prompt.user }
+    ]
+  });
+
+  let testData;
+  try {
+    testData = JSON.parse(generatedTests);
+  } catch {
+    testData = {
+      code: generatedTests,
+      cases: [],
+      coverage: 'unknown'
+    };
+  }
+
+  await bridge.activity.complete('Tests generated');
+
+  // Show preview
+  await showTestPreview(testData, sourceFile, framework);
+}
+
+function extractCode(context) {
+  const item = context.items[0];
+  if (typeof item === 'string') return item;
+  return item.content || item.text || item.code || '';
+}
+
+function extractFilePath(context) {
+  const item = context.items[0];
+  return item.path || item.file || item.uri || 'untitled';
+}
+
+function detectLanguage(context, code) {
+  // From understanding
+  const understanding = (context.understanding || '').toLowerCase();
+  if (understanding.includes('typescript')) return 'typescript';
+  if (understanding.includes('javascript')) return 'javascript';
+  if (understanding.includes('python')) return 'python';
+  if (understanding.includes('java')) return 'java';
+  if (understanding.includes('go')) return 'go';
+
+  // From file extension
+  const path = extractFilePath(context);
+  if (path.endsWith('.ts') || path.endsWith('.tsx')) return 'typescript';
+  if (path.endsWith('.js') || path.endsWith('.jsx')) return 'javascript';
+  if (path.endsWith('.py')) return 'python';
+  if (path.endsWith('.java')) return 'java';
+  if (path.endsWith('.go')) return 'go';
+
+  // From code patterns
+  if (code.includes('interface ') || code.includes(': string')) return 'typescript';
+  if (code.includes('def ') || code.includes('import ')) return 'python';
+
+  return 'javascript';
+}
+
+async function detectFramework(language) {
+  // Try to read package.json or similar
+  try {
+    const config = await bridge.context?.query?.('file', { path: 'package.json' });
+    if (config) {
+      const pkg = JSON.parse(config.content || '{}');
+      const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+      if (deps.vitest) return 'vitest';
+      if (deps.jest) return 'jest';
+      if (deps.mocha) return 'mocha';
+    }
+  } catch {
+    // Fall back to language defaults
+  }
+
+  const defaults = {
+    typescript: 'vitest',
+    javascript: 'jest',
+    python: 'pytest',
+    java: 'junit',
+    go: 'go-test'
+  };
+
+  return defaults[language] || 'jest';
+}
+
+function buildTestPrompt(mode, code, language, framework, style) {
+  const modeInstructions = {
+    standard: 'Generate comprehensive unit tests covering the main functionality.',
+    coverage: 'Generate tests aiming for high code coverage. Include tests for all branches, edge cases, and error conditions.',
+    'edge-cases': 'Focus on edge cases, boundary conditions, error scenarios, and unusual inputs.'
+  };
+
+  const frameworkGuides = {
+    jest: 'Use Jest with describe/it or test blocks. Use expect() for assertions.',
+    vitest: 'Use Vitest syntax (same as Jest). Import { describe, it, expect } from "vitest".',
+    mocha: 'Use Mocha with describe/it. Use chai for assertions if needed.',
+    pytest: 'Use pytest conventions. Name test functions test_*. Use assert statements.',
+    junit: 'Use JUnit 5 with @Test annotations. Use Assertions.* for assertions.'
+  };
+
+  return {
+    system: `You are a test generation expert. Generate high-quality unit tests.
+
+Language: ${language}
+Framework: ${framework}
+Style: ${style}
+
+${modeInstructions[mode]}
+${frameworkGuides[framework]}
+
+Return JSON:
+{
+  "code": "full test file content",
+  "cases": [
+    { "name": "test name", "description": "what it tests", "type": "happy-path|edge-case|error" }
+  ],
+  "coverage": "estimated coverage description",
+  "imports": ["required imports"],
+  "filename": "suggested test file name"
+}`,
+
+    user: `Generate tests for this code:\n\n${code}`
+  };
+}
+
+async function showTestPreview(testData, sourceFile, framework) {
+  const testFilename = testData.filename || suggestTestFilename(sourceFile, framework);
+
+  const result = await bridge.ui.confirm({
+    title: 'Generated Tests',
+    content: `
+      <div class="source-info">
+        <strong>Source:</strong> ${escapeHtml(sourceFile)}<br>
+        <strong>Test file:</strong> ${escapeHtml(testFilename)}<br>
+        <strong>Coverage:</strong>
+        <span class="coverage-badge coverage-medium">${escapeHtml(testData.coverage || 'Standard')}</span>
+      </div>
+
+      ${testData.cases?.length > 0 ? `
+        <div style="margin-bottom: 1rem;">
+          <strong>Test Cases (${testData.cases.length}):</strong>
+          ${testData.cases.slice(0, 5).map(c => `
+            <div class="test-case">
+              <div class="test-case-name">${escapeHtml(c.name)}</div>
+              <div class="test-case-desc">${escapeHtml(c.description)}</div>
+            </div>
+          `).join('')}
+          ${testData.cases.length > 5 ? `<p style="color: #64748b;">...and ${testData.cases.length - 5} more</p>` : ''}
+        </div>
+      ` : ''}
+
+      <strong>Generated Code:</strong>
+      <div class="code-preview">${escapeHtml(testData.code)}</div>
+    `,
+    buttons: ['Create File', 'Copy Code', 'Cancel'],
+    width: 600
+  });
+
+  if (result === 'Cancel') return;
+
+  if (result === 'Create File') {
+    try {
+      await bridge.act({
+        intent: 'create-file',
+        path: testFilename,
+        content: testData.code
+      });
+
+      await bridge.ui.notify?.(`Created ${testFilename}`, 'success');
+
+      // Try to open the file
+      try {
+        await bridge.act({
+          intent: 'open-file',
+          path: testFilename
+        });
+      } catch {
+        // Opening is optional
+      }
+    } catch (e) {
+      await bridge.ui.notify?.(`Failed to create file: ${e.message}`, 'error');
+    }
+  } else {
+    await bridge.ui.notify?.('Code copied to clipboard', 'success');
+  }
+}
+
+function suggestTestFilename(sourceFile, framework) {
+  const baseName = sourceFile.replace(/\.[^/.]+$/, '');
+  const ext = sourceFile.split('.').pop();
+
+  const patterns = {
+    jest: `${baseName}.test.${ext}`,
+    vitest: `${baseName}.test.${ext}`,
+    mocha: `${baseName}.spec.${ext}`,
+    pytest: `test_${baseName.split('/').pop()}.py`,
+    junit: `${baseName}Test.java`
+  };
+
+  return patterns[framework] || `${baseName}.test.${ext}`;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ACTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+bridge.action('generate', async () => {
+  await generateTests('standard');
+});
+
+bridge.action('generate-coverage', async () => {
+  await generateTests('coverage');
+});
+
+bridge.action('add-edge-cases', async () => {
+  await generateTests('edge-cases');
+});
+</script>
+
+</body>
+</html>

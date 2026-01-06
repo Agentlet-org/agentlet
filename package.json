@@ -1,0 +1,16 @@
+{
+  "name": "agentlet-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "hosts/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "build:sdk": "npm run build -w @agentlet/host-sdk",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
